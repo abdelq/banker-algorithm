@@ -53,7 +53,7 @@ run-client-valgrind: all
 	$(VALGRIND) $(BUILD_DIR)/tp2_client 2018 5 50   10 4 23 1 2 
 
 clean:
-	$(RM) -r $(BUILD_DIR) *.aux *.log
+	$(RM) -r $(BUILD_DIR) *.aux *.log */*~*
 
 %.pdf: %.tex
 	pdflatex -halt-on-error $<

@@ -1,3 +1,9 @@
-*.pdf
+*.o
 *.c~*
 *.h~*
+build/
+
+# Report
+*.pdf
+*.log
+*.aux
