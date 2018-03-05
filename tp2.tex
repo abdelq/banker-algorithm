@@ -1,0 +1,221 @@
+\documentclass{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage{amsfonts}            %For \leadsto
+\usepackage{amsmath}             %For \text
+\usepackage{fancybox}            %For \ovalbox
+
+\title{Travail pratique \#2}
+\author{IFT-2245}
+
+\begin{document}
+
+\maketitle
+
+{\centering \ovalbox{\large ¡¡ Dû le 23 mars à 23h55 !!} \\}
+
+\newcommand \mML {\ensuremath\mu\textsl{ML}}
+\newcommand \kw [1] {\textsf{#1}}
+\newcommand \id [1] {\textsl{#1}}
+\newcommand \punc [1] {\kw{`#1'}}
+\newcommand \str [1] {\texttt{"#1"}}
+\newenvironment{outitemize}{
+  \begin{itemize}
+  \let \origitem \item \def \item {\origitem[]\hspace{-18pt}}
+}{
+  \end{itemize}
+}
+%\newcommand \Align [2][t] {
+%  \begin{array}[#1]{@{}l}
+%    #2
+%  \end{array}}
+
+\section{Survol}
+
+Ce TP vise à vous familiariser avec la programmation avec des threads et des
+sockets dans un système de style POSIX.
+Les étapes de ce travail sont les suivantes:
+\begin{enumerate}
+\item Parfaire sa connaissance de C et POSIX.
+\item Lire et comprendre cette donnée.  Cela prendra probablement une partie
+  importante du temps total.
+\item Lire, trouver, et comprendre les parties importantes du code fourni.
+\item Compléter le code fourni.
+\item Écrire un rapport.  Il doit décrire \textbf{votre} expérience pendant
+  les points précédents: problèmes rencontrés, surprises, choix que vous
+  avez dû faire, options que vous avez sciemment rejetées, etc...  Le
+  rapport ne doit pas excéder 5 pages.
+\end{enumerate}
+
+Ce travail est à faire en groupes de 2 étudiants.  Le rapport, au format
+\LaTeX\ exclusivement et le code sont
+à remettre par remise électronique avant la date indiquée.  Aucun retard ne
+sera accepté.  Indiquez clairement votre nom au début de chaque fichier.
+
+Si un étudiant préfère travailler seul, libre à lui, mais l'évaluation de
+son travail n'en tiendra pas compte.  Si un étudiant ne trouve pas de
+partenaire, il doit me contacter au plus vite.  Des groupes de 3 ou plus
+sont \textbf{exclus}.
+
+\newpage
+\section{Introduction}
+
+Pour ce TP, vous devez implémenter en C l’algorithme du banquier, un
+algorithme qui permet de gérer l’allocation des différents types des
+ressources, tout en évitant les interblocages (deadlocks).  Le code fourni
+implémente un modèle de client-serveur qui utilise les prises (sockets)
+comme moyen de communication.
+
+D’un côté l’application serveur est analogue à un système d’exploitation qui
+gère l’allocation des ressources, comme par exemple la mémoire, le disque
+dur ou les imprimantes.  Ce serveur reçoit simultanément plusieurs demandes
+de ressources des différents clients à travers des connexions.  Pour chaque
+connexion/requête, le serveur doit décider quand les ressources peuvent être
+allouées au client, de façon à éviter les interblocages en suivant
+l’algorithme du banquier.
+
+De l’autre côte, l’application client simule l’activité de plusieurs clients
+dans différents fils d’exécution (threads).  Ces clients peuvent demander des
+ressources si elles sont disponibles ou libérer des ressource qu’ils
+détiennent à ce moment.
+
+Ce TP vous permettra de mettre en pratique quatre sujets du cours différents:
+\begin{itemize}
+\item Fils d’exécution multiples (multithreading).
+\item Prévention des séquencements critiques (race conditions).
+\item Évitement d’interblocages (deadlock avoidance).
+\item Communication entre processus via des prises (sockets).
+\end{itemize}
+
+\section{Mise en place}
+
+Des fichiers vous sont fournis pour vous aider à commencer ce TP.
+On vous demande de travailler à l’intérieur de la structure déjà fournie.
+
+Les deux applications, client et serveur, utilisent les librairies du
+standard POSIX pour l’implémentation des structures dont vous allez avoir
+besoin, notamment les sockets, les threads, les semaphores et les mutex.
+Ces librairies sont par defaut installées sur une installation du système
+GNU/Linux.
+
+\subsection{Makefile}
+
+Pour vous faciliter le travail, le fichier \texttt{GNUmakefile} de l'archive
+vous permet d'utiliser les commandes suivantes:
+\begin{itemize}
+  \item \texttt{make} ou \texttt{make all}: Compile les deux applications.
+  \item \texttt{make release}: Archive le code dans un \kw{tar} pour la remise.
+  \item \texttt{make run}: Lance le client et le serveur ensembles.
+  \item \texttt{make run-client}: Lance le client.
+  \item \texttt{make run-server}: Lance le serveur.
+  \item \texttt{make run-valgrind-client}: Lance le client dans valgrind.
+  \item \texttt{make run-valgrind-server}: Lance le serveur dans valgrind.
+  \item \texttt{make clean}: Nettoie le dossier build.
+\end{itemize}
+
+\section{Protocole client serveur}
+Le protocole de communication entre le client et le serveur est constitué de
+commandes et de réponses qui sont chacune une ligne de texte au format
+\emph{utf-8} (et terminée par le caractère ASCII 10, \emph{line-feed}).
+\begin{figure}[h]
+  \begin{center}
+    \begin{tabular}{ll}
+      \kw{BEG} \id{nb\_resources} & Configure le nombre de ressources \\
+      \kw{PRO} \id{rsc}$_0$ \id{rsc}$_1$ ... & Provisionne les ressources \\
+      \kw{END} & Termine l'exécution du serveur \\
+      \hline
+      \kw{INI} \id{tid} \id{max}$_0$ \id{max}$_1$ ... &
+          Annonce client avec son usage maximum \\
+      \kw{REQ} \id{tid} \id{rsc}$_0$ \id{rsc}$_1$ ... &
+          Requête de ressources \\
+      \kw{CLO} \id{tid} & Annonce la fin du client \\
+    \end{tabular}
+  \end{center}
+  \caption{Requêtes du client}
+  \label{fig:requests}
+\end{figure}
+\begin{figure}[h]
+  \begin{center}
+    \begin{tabular}{ll}
+      \kw{ACK} & Commande exécutée avec succès \\
+      \kw{ERR} \id{msg} & Commande invalide, \id{msg} explique pourquoi \\
+      \kw{WAIT} \id{sec} & Demande au client d'attendre \id{sec} secondes
+    \end{tabular}
+  \end{center}
+  \caption{Réponses du serveur}
+  \label{fig:answers}
+\end{figure}
+
+Le protocole est dirigé par le client qui fait des requêtes au serveur.
+Les réponses du serveur sont toujours \kw{ACK}, \kw{ERR}, ou \kw{WAIT}, comme
+montré à la Figure~\ref{fig:answers}.
+
+Les requêtes, montrées à la Figure~\ref{fig:requests}, se divisent en deux
+parties:
+\begin{itemize}
+  \item les commandes globales utilisées au tout début pour configurer le
+    serveur puis à la fin pour le terminer.
+  \item Les commandes par client (où chaque client est en fait un thread du
+    programme \texttt{tp2\_client}).
+\end{itemize}
+
+Donc après avoir lancé le serveur, le programme client le configure par
+exemple avec:
+\begin{verbatim}
+  BEG 5
+  PRO 10 5 3 23 1
+\end{verbatim}
+Suite à cela, les différents threads du client peuvent chacun ouvrir une
+connection et y envoyer leurs requêtes, qui pourraient alors avoir la forme
+suivante pour le thread client avec le id 332:
+\begin{verbatim}
+  INI 332 1  2  1 10 0
+  REQ 322 1 0  0  1  0 0
+  REQ 332 0  2  0  0 0
+  REQ 332 0  0 -1  0 0
+  REQ 332 0 -2  0  0 0
+  CLO 332
+\end{verbatim}
+
+À remarquer que pour libérer des ressources, il suffit d'utiliser des
+quantités négatives dans une \emph{requête}.
+
+À remarquer que si un client est mis en attente par un \kw{WAIT}, il ne fait
+que répéter la même requête après l'attente jusqu'à recevoir un \kw{ACK}.
+
+C'est une erreure s’il reste des ressources occupées lors du \kw{CLO} ou des
+clients encore connectés lors du \kw{END}.  À la fin, le serveur effectue
+alors l’impression du journal à l’intérieur d’un fichier et le client fait
+de même à la réception de \kw{ACK}.  Le serveur peut alors se fermer ainsi
+que le client.
+
+\subsection{Remise}
+
+Pour la remise, vous devez remettre tous les fichiers C ainsi que le
+\texttt{rapport.tex} dans une archive \kw{tar} par la page StudiUM du cours.  Vous pouvez utiliser \texttt{make release} pour
+créer l'archive en question.  
+
+\section{Détails}
+
+\begin{itemize}
+  \item La note sera divisée comme suit: 20\% pour chacune des
+    4 sujets (multithreading, race conditions, deadlock avoidance, et sockets), et 20\% pour le rapport.
+  \item Tout usage de matériel (code ou texte) emprunté à quelqu'un d'autre
+    (trouvé sur le web, ...) doit être dûment mentionné, sans quoi cela sera
+    considéré comme du plagiat.
+  \item Le code ne doit en aucun cas dépasser 80 colonnes.
+  \item Vérifiez la page web du cours, pour d'éventuels errata, et d'autres
+    indications supplémentaires.
+  \item La note sera basée d'une part sur des tests automatiques, d'autre part
+    sur la lecture du code, ainsi que sur le rapport.  Le critère le plus
+    important, et que votre code doit se comporter de manière correcte.
+    Ensuite, vient la qualité du code: plus c'est simple, mieux c'est.
+    S'il y a beaucoup de commentaires, c'est généralement un symptôme que le
+    code n'est pas clair; mais bien sûr, sans commentaires le code (même
+    simple) est souvent incompréhensible.  L'efficacité de votre code est sans
+    importance, sauf s'il utilise un algorithme vraiment particulièrement
+    ridiculement inefficace.
+  \item Les fuites de mémoire sont pénalisées.
+\end{itemize}
+
+\end{document}
