@@ -20,7 +20,7 @@ enum {
 	server_backlog_size = 5
 };
 
-unsigned int server_socket_fd;
+int server_socket_fd;
 
 // Nombre de clients enregistrés
 unsigned int nb_registered_clients = 0;
@@ -56,9 +56,6 @@ void st_init()
 {
 	// Handle interrupt
 	signal(SIGINT, &sigint_handler);
-
-	// Initialise le nombre de clients connecté.
-	nb_registered_clients = 0;
 
 	// TODO
 

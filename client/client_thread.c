@@ -58,10 +58,9 @@ void send_beg_pro()
 		.sin_port = htons(port_number),
 		.sin_family = AF_INET,
 	};
-	if (sendto
-	    (socket_fd, buf, strlen(buf), 0, (struct sockaddr *)&addr,
-	     sizeof(addr)) < 0)
-		perror("ERROR on sending");
+	connect(socket_fd, (struct sockaddr *)&addr, sizeof(addr));
+	send(socket_fd, buf, strlen(buf), 0);
+	//shutdown(socket_fd, SHUT_WR);
 }
 
 void send_end()
@@ -77,10 +76,9 @@ void send_end()
 		.sin_port = htons(port_number),
 		.sin_family = AF_INET,
 	};
-	if (sendto
-	    (socket_fd, buf, strlen(buf), 0, (struct sockaddr *)&addr,
-	     sizeof(addr)) < 0)
-		perror("ERROR on sending");
+	connect(socket_fd, (struct sockaddr *)&addr, sizeof(addr));
+	send(socket_fd, buf, strlen(buf), 0);
+	//shutdown(socket_fd, SHUT_WR);
 }
 
 // Vous devez modifier cette fonction pour faire l'envoie des requêtes
