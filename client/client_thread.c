@@ -39,6 +39,50 @@ unsigned int count_dispatched = 0;
 // Nombre total de requêtes envoyées.
 unsigned int request_sent = 0;
 
+void send_beg_pro()
+{
+	int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+	if (socket_fd < 0)
+		perror("ERROR opening socket");
+
+	char buf[256];		// XXX
+	snprintf(buf, sizeof(buf), "BEG %d\n", num_resources);
+
+	strcat(buf, "PRO");
+	for (int i = 0; i < num_resources; i++)
+		sprintf(buf + strlen(buf), " %d", provisioned_resources[i]);
+	strcat(buf, "\n");
+
+	const struct sockaddr_in addr = {
+		.sin_addr = {htonl(INADDR_LOOPBACK)},
+		.sin_port = htons(port_number),
+		.sin_family = AF_INET,
+	};
+	if (sendto
+	    (socket_fd, buf, strlen(buf), 0, (struct sockaddr *)&addr,
+	     sizeof(addr)) < 0)
+		perror("ERROR on sending");
+}
+
+void send_end()
+{
+	int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+	if (socket_fd < 0)
+		perror("ERROR opening socket");
+
+	char *buf = "END\n";
+
+	const struct sockaddr_in addr = {
+		.sin_addr = {htonl(INADDR_LOOPBACK)},
+		.sin_port = htons(port_number),
+		.sin_family = AF_INET,
+	};
+	if (sendto
+	    (socket_fd, buf, strlen(buf), 0, (struct sockaddr *)&addr,
+	     sizeof(addr)) < 0)
+		perror("ERROR on sending");
+}
+
 // Vous devez modifier cette fonction pour faire l'envoie des requêtes
 // Les ressources demandées par la requête doivent être choisies aléatoirement
 // (sans dépasser le maximum pour le client). Elles peuvent être positives
@@ -65,7 +109,7 @@ void *ct_code(void *param)
 	// Vous devez ici faire l'initialisation des petits clients (`INI`).
 	// TP2 TODO:END
 
-	for (unsigned int request_id = 0; request_id < num_request_per_client;
+	for (int request_id = 0; request_id < num_request_per_client;
 	     request_id++) {
 
 		// TP2 TODO

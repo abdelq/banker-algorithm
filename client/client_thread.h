@@ -31,6 +31,9 @@ void ct_init(client_thread *);
 void ct_create_and_start(client_thread *);
 void ct_wait_server();
 
+void send_beg_pro();
+void send_end();
+
 void st_print_results(FILE *, bool);
 
 #endif				// CLIENTTHREAD_H

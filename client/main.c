@@ -17,18 +17,25 @@ int main(int argc, char *argv[])
 	num_resources = argc - 4;
 
 	provisioned_resources = malloc(num_resources * sizeof(int));
-	for (unsigned int i = 0; i < num_resources; i++)
+	for (int i = 0; i < num_resources; i++)
 		provisioned_resources[i] = atoi(argv[i + 4]);
+
+	send_beg_pro();
 
 	client_thread *client_threads =
 	    malloc(num_clients * sizeof(client_thread));
-	for (unsigned int i = 0; i < num_clients; i++)
+	for (int i = 0; i < num_clients; i++)
 		ct_init(&(client_threads[i]));
 
-	for (unsigned int i = 0; i < num_clients; i++)
+	for (int i = 0; i < num_clients; i++)
 		ct_create_and_start(&(client_threads[i]));
 
 	ct_wait_server();
+
+	send_end();
+
+	free(provisioned_resources);
+	free(client_threads);
 
 	// Affiche le journal.
 	st_print_results(stdout, true);
