@@ -15,7 +15,8 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 
-int port_number = -1;
+sockaddr_in server_addr = {.sin_family = AF_INET};
+
 int num_request_per_client = -1;
 int num_resources = -1;
 int *provisioned_resources = NULL;
@@ -53,12 +54,7 @@ void send_beg_pro()
 		sprintf(buf + strlen(buf), " %d", provisioned_resources[i]);
 	strcat(buf, "\n");
 
-	const struct sockaddr_in addr = {
-		.sin_addr = {htonl(INADDR_LOOPBACK)},
-		.sin_port = htons(port_number),
-		.sin_family = AF_INET,
-	};
-	connect(socket_fd, (struct sockaddr *)&addr, sizeof(addr));
+	connect(socket_fd, (sockaddr *) & server_addr, sizeof(server_addr));
 	send(socket_fd, buf, strlen(buf), 0);
 	//shutdown(socket_fd, SHUT_WR);
 }
@@ -70,13 +66,7 @@ void send_end()
 		perror("ERROR opening socket");
 
 	char *buf = "END\n";
-
-	const struct sockaddr_in addr = {
-		.sin_addr = {htonl(INADDR_LOOPBACK)},
-		.sin_port = htons(port_number),
-		.sin_family = AF_INET,
-	};
-	connect(socket_fd, (struct sockaddr *)&addr, sizeof(addr));
+	connect(socket_fd, (sockaddr *) & server_addr, sizeof(server_addr));
 	send(socket_fd, buf, strlen(buf), 0);
 	//shutdown(socket_fd, SHUT_WR);
 }

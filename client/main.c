@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <netinet/in.h>
 
 #include "client_thread.h"
 
@@ -11,7 +12,9 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-	port_number = atoi(argv[1]);
+	server_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	server_addr.sin_port = htons(atoi(argv[1]));
+
 	int num_clients = atoi(argv[2]);
 	num_request_per_client = atoi(argv[3]);
 	num_resources = argc - 4;

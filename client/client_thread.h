@@ -8,8 +8,10 @@
 #include <pthread.h>
 #include <unistd.h>
 
-/* Port TCP sur lequel le serveur attend des connections.  */
-extern int port_number;
+/* Adresse TCP sur lequel le serveur attend des connections.  */
+typedef struct sockaddr sockaddr;
+typedef struct sockaddr_in sockaddr_in;
+extern sockaddr_in server_addr;
 
 /* Nombre de requêtes que chaque client doit envoyer.  */
 extern int num_request_per_client;
