@@ -25,22 +25,19 @@ int main(int argc, char *argv[])
 
 	send_beg_pro();
 
-	client_thread *client_threads =
-	    malloc(num_clients * sizeof(client_thread));
+	client_thread *threads = malloc(num_clients * sizeof(client_thread));
 	for (int i = 0; i < num_clients; i++)
-		ct_init(&(client_threads[i]));
-
+		ct_init(&(threads[i]));
 	for (int i = 0; i < num_clients; i++)
-		ct_create_and_start(&(client_threads[i]));
-
+		ct_create_and_start(&(threads[i]));
 	ct_wait_server();
 
 	send_end();
 
 	free(provisioned_resources);
-	free(client_threads);
+	free(threads);
 
-	// Affiche le journal.
+	// Affiche le journal
 	st_print_results(stdout, true);
 	FILE *fp = fopen("client.log", "w");
 	if (fp == NULL) {

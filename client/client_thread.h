@@ -8,18 +8,18 @@
 #include <pthread.h>
 #include <unistd.h>
 
-/* Adresse TCP sur lequel le serveur attend des connections.  */
+/* Adresse TCP sur lequel le serveur attend des connections */
 typedef struct sockaddr sockaddr;
 typedef struct sockaddr_in sockaddr_in;
 extern sockaddr_in server_addr;
 
-/* Nombre de requêtes que chaque client doit envoyer.  */
+/* Nombre de requêtes que chaque client doit envoyer */
 extern int num_request_per_client;
 
-/* Nombre de resources différentes.  */
+/* Nombre de resources différentes */
 extern int num_resources;
 
-/* Quantité disponible pour chaque resource.  */
+/* Quantité disponible pour chaque resource */
 extern int *provisioned_resources;
 
 typedef struct client_thread client_thread;
