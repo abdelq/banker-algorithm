@@ -15,7 +15,7 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 
-sockaddr_in server_addr = {.sin_family = AF_INET};
+sockaddr_in server_addr = {.sin_family = AF_INET };
 
 int num_request_per_client = -1;
 int num_resources = -1;
@@ -45,18 +45,19 @@ void send_beg_pro()
 	int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (socket_fd < 0)
 		perror("ERROR opening socket");
+	if (connect(socket_fd, (sockaddr *) & server_addr, sizeof(server_addr))
+	    < 0)
+		perror("ERROR on connecting");
 
 	char buf[256];		// XXX
-	snprintf(buf, sizeof(buf), "BEG %d\n", num_resources);
-
-	strcat(buf, "PRO");
+	int len = snprintf(buf, sizeof(buf), "BEG %d\nPRO", num_resources);
 	for (int i = 0; i < num_resources; i++)
-		sprintf(buf + strlen(buf), " %d", provisioned_resources[i]);
+		len += snprintf(buf + len, sizeof(buf), " %d",
+				provisioned_resources[i]);
 	strcat(buf, "\n");
 
-	connect(socket_fd, (sockaddr *) & server_addr, sizeof(server_addr));
 	send(socket_fd, buf, strlen(buf), 0);
-	//shutdown(socket_fd, SHUT_WR);
+	// TODO Get the ACKs
 }
 
 void send_end()
@@ -64,11 +65,26 @@ void send_end()
 	int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (socket_fd < 0)
 		perror("ERROR opening socket");
+	if (connect(socket_fd, (sockaddr *) & server_addr, sizeof(server_addr))
+	    < 0)
+		perror("ERROR on connecting");
 
-	char *buf = "END\n";
-	connect(socket_fd, (sockaddr *) & server_addr, sizeof(server_addr));
+	send(socket_fd, "END\n", 4, 0);
+	// TODO Get the ACK
+}
+
+void send_ini(int client_id, int socket_fd)
+{
+	char buf[256];		// XXX
+	int len = snprintf(buf, sizeof(buf), "INI %d", client_id);
+	for (int i = 0; i < num_resources; i++)
+		len += snprintf(buf + len, sizeof(buf), " %d",
+				(int)(drand48() *
+				      (provisioned_resources[i] + 1)));
+	strcat(buf, "\n");
+
 	send(socket_fd, buf, strlen(buf), 0);
-	//shutdown(socket_fd, SHUT_WR);
+	// TODO Get the ACK
 }
 
 // Vous devez modifier cette fonction pour faire l'envoie des requêtes
@@ -77,7 +93,7 @@ void send_end()
 // ou négatives.
 // Assurez-vous que la dernière requête d'un client libère toute les ressources
 // qu'il a jusqu'alors accumulées.
-void send_request(int client_id, int request_id, int socket_fd)
+void send_req(int client_id, int socket_fd, int request_id)
 {
 	// TP2 TODO
 
@@ -89,22 +105,23 @@ void send_request(int client_id, int request_id, int socket_fd)
 
 void *ct_code(void *param)
 {
-	int socket_fd = -1;
+	int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+	if (socket_fd < 0)
+		perror("ERROR opening socket");
+	if (connect(socket_fd, (sockaddr *) & server_addr, sizeof(server_addr))
+	    < 0)
+		perror("ERROR on connecting");
+
 	client_thread *ct = (client_thread *) param;
+	srand48(time(NULL));
 
-	// TP2 TODO
-	// Connection au server.
-	// Vous devez ici faire l'initialisation des petits clients (`INI`).
-	// TP2 TODO:END
-
-	for (int request_id = 0; request_id < num_request_per_client;
-	     request_id++) {
-
+	send_ini(ct->id, socket_fd);
+	for (int req_id = 0; req_id < num_request_per_client; req_id++) {
 		// TP2 TODO
 		// Vous devez ici coder, conjointement avec le corps de send request,
 		// le protocole d'envoi de requête.
 
-		send_request(ct->id, request_id, socket_fd);
+		send_req(ct->id, socket_fd, req_id);
 
 		// TP2 TODO:END
 
