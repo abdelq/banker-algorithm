@@ -19,23 +19,26 @@ int main(int argc, char *argv[])
 	num_request_per_client = atoi(argv[3]);
 	num_resources = argc - 4;
 
+	cur_resources_per_client = malloc(num_clients * sizeof(int *));
 	provisioned_resources = malloc(num_resources * sizeof(int));
 	for (int i = 0; i < num_resources; i++)
 		provisioned_resources[i] = atoi(argv[i + 4]);
 
-	send_beg_pro();
+	if (send_beg_pro()) {
+		srand48(time(NULL));
 
-	client_thread *threads = malloc(num_clients * sizeof(client_thread));
-	for (int i = 0; i < num_clients; i++)
-		ct_init(&(threads[i]));
-	for (int i = 0; i < num_clients; i++)
-		ct_create_and_start(&(threads[i]));
-	ct_wait_server();
+		client_thread client_threads[num_clients];
+		for (int i = 0; i < num_clients; i++)
+			ct_init(&(client_threads[i]));
+		for (int i = 0; i < num_clients; i++)
+			ct_create_and_start(&(client_threads[i]));
+		ct_wait_server();
 
-	send_end();
+		send_end();
+	}
 
+	free(cur_resources_per_client);
 	free(provisioned_resources);
-	free(threads);
 
 	// Affiche le journal
 	st_print_results(stdout, true);

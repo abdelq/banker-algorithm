@@ -18,6 +18,7 @@ sockaddr_in server_addr = {
 int num_request_per_client;
 int num_resources;
 int *provisioned_resources;
+int **cur_resources_per_client;
 
 // Variable d'initialisation des threads clients
 unsigned int count = 0;
@@ -43,7 +44,7 @@ pthread_mutex_t mutex_count_dispatched = PTHREAD_MUTEX_INITIALIZER;
 unsigned int request_sent = 0;
 pthread_mutex_t mutex_request_sent = PTHREAD_MUTEX_INITIALIZER;
 
-void send_beg_pro()
+bool send_beg_pro()
 {
 	int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (socket_fd < 0)
@@ -60,7 +61,8 @@ void send_beg_pro()
 	strcat(buf, "\n");
 
 	send(socket_fd, buf, strlen(buf), 0);
-	// TODO Get the ACKs
+	// TODO Get the ACKs true if all is good
+	return true;
 }
 
 void send_end()
@@ -116,7 +118,6 @@ void *ct_code(void *param)
 		perror("ERROR on connecting");
 
 	client_thread *ct = (client_thread *) param;
-	srand48(time(NULL));	// XXX
 
 	send_ini(ct->id, socket_fd);
 	for (int req_id = 0; req_id < num_request_per_client; req_id++) {
@@ -137,13 +138,16 @@ void *ct_code(void *param)
 
 void ct_wait_server()
 {
-// TODO Attendre fin du traitement des requêtes du serveur
+	// TODO Attendre fin du traitement des requêtes du serveur
 
 	pthread_mutex_destroy(&mutex_count_accepted);
 	pthread_mutex_destroy(&mutex_count_on_wait);
 	pthread_mutex_destroy(&mutex_count_invalid);
 	pthread_mutex_destroy(&mutex_count_dispatched);
 	pthread_mutex_destroy(&mutex_request_sent);
+
+	for (int i = 0; i < count; i++)
+		free(cur_resources_per_client[i]);
 }
 
 void ct_create_and_start(client_thread * ct)
@@ -156,6 +160,7 @@ void ct_create_and_start(client_thread * ct)
 void ct_init(client_thread * ct)
 {
 	ct->id = count++;
+	cur_resources_per_client[ct->id] = malloc(num_resources * sizeof(int));
 }
 
 void st_print_results(FILE * fd, bool verbose)

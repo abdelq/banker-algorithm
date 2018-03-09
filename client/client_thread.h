@@ -22,6 +22,9 @@ extern int num_resources;
 /* Quantité disponible pour chaque resource */
 extern int *provisioned_resources;
 
+/* Quantité de resources de chaque client */
+extern int **cur_resources_per_client;
+
 typedef struct client_thread client_thread;
 struct client_thread {
 	unsigned int id;
@@ -33,7 +36,7 @@ void ct_init(client_thread *);
 void ct_create_and_start(client_thread *);
 void ct_wait_server();
 
-void send_beg_pro();
+bool send_beg_pro();
 void send_end();
 
 void st_print_results(FILE *, bool);
