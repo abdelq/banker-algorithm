@@ -20,7 +20,7 @@ extern int num_request_per_client;
 extern int num_resources;
 
 /* Quantité disponible pour chaque resource */
-extern int *provisioned_resources;
+extern int *provis_resources;
 
 /* Quantité de resources de chaque client */
 extern int **cur_resources_per_client;
@@ -35,8 +35,9 @@ void ct_init(client_thread *);
 void ct_create_and_start(client_thread *);
 void ct_wait_server();
 
-bool send_beg_pro();
-void send_end();
+int send_beg();
+int send_pro();
+int send_end();
 
 void st_print_results(FILE *, bool);
 

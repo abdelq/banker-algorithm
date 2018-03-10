@@ -17,7 +17,7 @@ sockaddr_in server_addr = {
 
 int num_request_per_client;
 int num_resources;
-int *provisioned_resources;
+int *provis_resources;
 int **cur_resources_per_client;
 
 // Variable d'initialisation des threads clients
@@ -40,110 +40,238 @@ pthread_mutex_t mutex_count_invalid = PTHREAD_MUTEX_INITIALIZER;
 unsigned int count_dispatched = 0;
 pthread_mutex_t mutex_count_dispatched = PTHREAD_MUTEX_INITIALIZER;
 
+// Nombre de clients qui se sont terminés incorrectement
+unsigned int count_undispatched = 0;
+pthread_mutex_t mutex_count_undispatched = PTHREAD_MUTEX_INITIALIZER;
+
 // Nombre total de requêtes envoyées
 unsigned int request_sent = 0;
 pthread_mutex_t mutex_request_sent = PTHREAD_MUTEX_INITIALIZER;
 
-bool send_beg_pro()
+int create_connected_socket()
 {
 	int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
-	if (socket_fd < 0)
-		perror("ERROR opening socket");
-	if (connect(socket_fd, (sockaddr *) & server_addr, sizeof(server_addr))
-	    < 0)
+	if (socket_fd < 0) {
+		perror("ERROR creating socket");
+		return -1;
+	}
+	if (connect
+	    (socket_fd, (sockaddr *) & server_addr, sizeof(server_addr)) < 0) {
 		perror("ERROR on connecting");
+		close(socket_fd);
+		return -1;
+	}
+	return socket_fd;
+}
+
+int sendall(int socket, const void *buffer, size_t length, int flags)
+{
+	const char *buf = (char *)buffer;
+	ssize_t sent;
+
+	while (length > 0) {
+		if ((sent = send(socket, buf, length, flags)) < 0)
+			return -1;
+
+		buf += sent;
+		length -= sent;
+	}
+
+	return 0;
+}
+
+// FIXME Use getline instead
+int recvall(int socket, void *buffer, size_t length, int flags)
+{
+	char *buf = (char *)buffer;
+	ssize_t received;
+
+	while (length > 0) {
+		if ((received = recv(socket, buf, length, flags)) < 0)
+			return -1;
+
+		buf += received;
+		length -= received;
+	}
+
+	return 0;
+}
+
+int send_beg()
+{
+	int socket_fd = create_connected_socket();
+	if (socket_fd < 0)
+		return 0;
+
+	char buf[128];		// XXX
+	int len = snprintf(buf, sizeof(buf), "BEG %d\n", num_resources);
+
+	if (sendall(socket_fd, buf, len, 0) < 0) {
+		perror("ERROR on sending BEG");
+		close(socket_fd);
+		return 0;
+	}
+	// TODO Manage reception
+
+	close(socket_fd);
+	return 1;
+}
+
+int send_pro()
+{
+	int socket_fd = create_connected_socket();
+	if (socket_fd < 0)
+		return 0;
 
 	char buf[256];		// XXX
-	int len = snprintf(buf, sizeof(buf), "BEG %d\nPRO", num_resources);
-	for (int i = 0; i < num_resources; i++)
-		len += snprintf(buf + len, sizeof(buf), " %d",
-				provisioned_resources[i]);
-	strcat(buf, "\n");
+	int len = snprintf(buf, sizeof(buf), "PRO");	// XXX
+	for (int i = 0; i < num_resources; i++) {
+		len +=
+		    snprintf(buf + len, sizeof(buf), " %d",
+			     provis_resources[i]);
+	}
+	strncat(buf, "\n", sizeof(buf));
 
-	send(socket_fd, buf, strlen(buf), 0);
-	// TODO Get the ACKs true if all is good
-	return true;
+	if (sendall(socket_fd, buf, len, 0) < 0) {
+		perror("ERROR on sending PRO");
+		close(socket_fd);
+		return 0;
+	}
+	// TODO Manage reception
+
+	close(socket_fd);
+	return 1;
 }
 
-void send_end()
+int send_end()
 {
-	int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+	int socket_fd = create_connected_socket();
 	if (socket_fd < 0)
-		perror("ERROR opening socket");
-	if (connect(socket_fd, (sockaddr *) & server_addr, sizeof(server_addr))
-	    < 0)
-		perror("ERROR on connecting");
+		return 0;
 
-	send(socket_fd, "END\n", 4, 0);
-	// TODO Get the ACK
+	if (sendall(socket_fd, "END\n", 4, 0) < 0) {	// XXX
+		perror("ERROR on sending END");
+		close(socket_fd);
+		return 0;
+	}
+	// TODO Manage reception
+
+	close(socket_fd);
+	return 1;
 }
 
-void send_ini(int client_id, int socket_fd)
+int send_ini(int client_id, int socket_fd)
 {
 	char buf[256];		// XXX
 	int len = snprintf(buf, sizeof(buf), "INI %d", client_id);
-	for (int i = 0; i < num_resources; i++)
-		len += snprintf(buf + len, sizeof(buf), " %d",
-				(int)(drand48() *
-				      (provisioned_resources[i] + 1)));
-	strcat(buf, "\n");
+	for (int i = 0; i < num_resources; i++) {
+		// Source: c-faq.com/lib/randrange
+		int max = rand() / (RAND_MAX / (provis_resources[i] + 1) + 1);
+		len += snprintf(buf + len, sizeof(buf), " %d", max);
+	}
+	strncat(buf, "\n", sizeof(buf));
 
-	send(socket_fd, buf, strlen(buf), 0);
-	// TODO Get the ACK
+	if (sendall(socket_fd, buf, len, 0) < 0) {
+		perror("ERROR on sending INI");
+		return 0;
+	}
+	// TODO Manage reception
+
+	return 1;
 }
 
-// Vous devez modifier cette fonction pour faire l'envoie des requêtes
-// Les ressources demandées par la requête doivent être choisies aléatoirement
-// (sans dépasser le maximum pour le client). Elles peuvent être positives
-// ou négatives.
-// Assurez-vous que la dernière requête d'un client libère toute les ressources
-// qu'il a jusqu'alors accumulées.
-void send_req(int client_id, int socket_fd, int request_id)
+// TODO Dernière requête doit libérer toutes les ressources accumulées
+int send_req(int client_id, int socket_fd, int request_id)
 {
-	// TP2 TODO
+	char buf[256];		// XXX
+	int len = snprintf(buf, sizeof(buf), "REQ %d", client_id);
+	for (int i = 0; i < num_resources; i++) {
+		int req = 42;	// TODO [-courant, max]
+		len += snprintf(buf + len, sizeof(buf), " %d", req);
+	}
+	strncat(buf, "\n", sizeof(buf));
 
+	if (sendall(socket_fd, buf, len, 0) < 0) {
+		perror("ERROR on sending REQ");
+		return 0;
+	}
+	// TODO Manage reception
+
+	/* XXX */
 	fprintf(stdout, "Client %d is sending its %d request\n",
 		client_id, request_id);
 
-	// TP2 TODO:END
+	pthread_mutex_lock(&mutex_request_sent);
+	request_sent++;
+	pthread_mutex_unlock(&mutex_request_sent);
+	/* XXX */
+
+	return 1;
+}
+
+int send_clo(int client_id, int socket_fd)
+{
+	char buf[128];		// XXX
+	int len = snprintf(buf, sizeof(buf), "CLO %d\n", client_id);
+
+	if (sendall(socket_fd, buf, len, 0) < 0) {
+		perror("ERROR on sending CLO");
+		return 0;
+	}
+	// TODO Manage reception
+
+	return 1;
 }
 
 void *ct_code(void *param)
 {
-	int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+	int socket_fd = create_connected_socket();
 	if (socket_fd < 0)
-		perror("ERROR opening socket");
-	if (connect(socket_fd, (sockaddr *) & server_addr, sizeof(server_addr))
-	    < 0)
-		perror("ERROR on connecting");
+		goto undispatched;
 
 	client_thread *ct = (client_thread *) param;
+	if (!send_ini(ct->id, socket_fd))
+		goto undispatched;
 
-	send_ini(ct->id, socket_fd);
 	for (int req_id = 0; req_id < num_request_per_client; req_id++) {
-		// TP2 TODO
-		// Vous devez ici coder, conjointement avec le corps de send request,
-		// le protocole d'envoi de requête.
+		if (send_req(ct->id, socket_fd, req_id)) {
+			pthread_mutex_lock(&mutex_count_accepted);
+			count_accepted++;
+			pthread_mutex_unlock(&mutex_count_accepted);
+		} else {
+			pthread_mutex_lock(&mutex_count_invalid);
+			count_invalid++;
+			pthread_mutex_unlock(&mutex_count_invalid);
+		}
 
-		send_req(ct->id, socket_fd, req_id);
-
-		// TP2 TODO:END
-
-		/* Attendre un petit peu (0s-0.1s) pour simuler le calcul. */
-		usleep(random() % (100 * 1000));
+		// Attendre un petit peu pour simuler le calcul
+		usleep(rand() % (100 * 1000));	// XXX Not uniform (usage of modulo)
 	}
 
+	if (!send_clo(ct->id, socket_fd))
+		goto undispatched;
+
+	close(socket_fd);
+	return NULL;
+ undispatched:
+	pthread_mutex_lock(&mutex_count_undispatched);
+	count_undispatched++;
+	pthread_mutex_unlock(&mutex_count_undispatched);
+	close(socket_fd);
 	return NULL;
 }
 
 void ct_wait_server()
 {
-	// TODO Attendre fin du traitement des requêtes du serveur
+	// XXX Possible race condition
+	while (count_dispatched + count_undispatched < count)
+		sleep(1);
 
 	pthread_mutex_destroy(&mutex_count_accepted);
 	pthread_mutex_destroy(&mutex_count_on_wait);
 	pthread_mutex_destroy(&mutex_count_invalid);
 	pthread_mutex_destroy(&mutex_count_dispatched);
+	pthread_mutex_destroy(&mutex_count_undispatched);
 	pthread_mutex_destroy(&mutex_request_sent);
 
 	for (int i = 0; i < count; i++)
@@ -153,14 +281,15 @@ void ct_wait_server()
 void ct_create_and_start(client_thread * ct)
 {
 	pthread_attr_init(&(ct->pt_attr));
+	pthread_attr_setdetachstate(&(ct->pt_attr), PTHREAD_CREATE_DETACHED);
 	pthread_create(&(ct->pt_tid), &(ct->pt_attr), &ct_code, ct);
-	pthread_detach(ct->pt_tid);
+	pthread_attr_destroy(&(ct->pt_attr));
 }
 
 void ct_init(client_thread * ct)
 {
 	ct->id = count++;
-	cur_resources_per_client[ct->id] = malloc(num_resources * sizeof(int));
+	cur_resources_per_client[ct->id] = calloc(num_resources, sizeof(int));
 }
 
 void st_print_results(FILE * fd, bool verbose)

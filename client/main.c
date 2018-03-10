@@ -1,4 +1,7 @@
+#define _XOPEN_SOURCE
+
 #include <stdlib.h>
+
 #include <netinet/in.h>
 
 #include "client_thread.h"
@@ -20,12 +23,12 @@ int main(int argc, char *argv[])
 	num_resources = argc - 4;
 
 	cur_resources_per_client = malloc(num_clients * sizeof(int *));
-	provisioned_resources = malloc(num_resources * sizeof(int));
+	provis_resources = malloc(num_resources * sizeof(int));
 	for (int i = 0; i < num_resources; i++)
-		provisioned_resources[i] = atoi(argv[i + 4]);
+		provis_resources[i] = atoi(argv[i + 4]);
 
-	if (send_beg_pro()) {
-		srand48(time(NULL));
+	if (send_beg() && send_pro()) {
+		srand(time(NULL));
 
 		client_thread client_threads[num_clients];
 		for (int i = 0; i < num_clients; i++)
@@ -38,7 +41,7 @@ int main(int argc, char *argv[])
 	}
 
 	free(cur_resources_per_client);
-	free(provisioned_resources);
+	free(provis_resources);
 
 	// Affiche le journal
 	st_print_results(stdout, true);
