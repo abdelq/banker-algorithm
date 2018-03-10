@@ -1,5 +1,5 @@
-#ifndef CLIENTTHREAD_H
-#define CLIENTTHREAD_H
+#ifndef CLIENT_THREAD_H
+#define CLIENT_THREAD_H
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -25,12 +25,11 @@ extern int *provisioned_resources;
 /* Quantité de resources de chaque client */
 extern int **cur_resources_per_client;
 
-typedef struct client_thread client_thread;
-struct client_thread {
+typedef struct client_thread {
 	unsigned int id;
 	pthread_t pt_tid;
 	pthread_attr_t pt_attr;
-};
+} client_thread;
 
 void ct_init(client_thread *);
 void ct_create_and_start(client_thread *);
@@ -41,4 +40,4 @@ void send_end();
 
 void st_print_results(FILE *, bool);
 
-#endif				// CLIENTTHREAD_H
+#endif				// CLIENT_THREAD_H
