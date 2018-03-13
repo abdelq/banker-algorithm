@@ -44,11 +44,16 @@ unsigned int request_processed = 0;
 // Nombre de clients ayant envoyé le message CLO
 unsigned int clients_ended = 0;
 
-int *available, *max, *allocation, *need;
+struct {
+	int *available;
+	int **max;
+	int **allocation;
+	int **need;
+    pthread_mutex_t mutex;
+} banker;
 
 static void sigint_handler(int signum)
 {
-	// Code terminaison.
 	accepting_connections = false;
 }
 
@@ -57,6 +62,7 @@ void st_init()
 	// Handle interrupt
 	signal(SIGINT, &sigint_handler);
 
+    pthread_mutex_init(&banker.mutex, NULL);
 	// TODO
 
 	// Attend la connection d'un client et initialise les structures pour
@@ -98,6 +104,7 @@ void st_process_requests(server_thread * st, int socket_fd)
 
 void st_signal()
 {
+    pthread_mutex_destroy(&banker.mutex); // XXX
 	// TODO Remplacer le contenu de cette fonction
 }
 
@@ -147,7 +154,7 @@ void st_open_socket(int port_number)
 {
 	server_socket_fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
 	if (server_socket_fd < 0)
-		perror("ERROR opening socket");
+		perror("ERROR creating socket");
 
 	if (setsockopt(server_socket_fd, SOL_SOCKET, SO_REUSEPORT, &(int) {
 		       1}, sizeof(int)) < 0) {
@@ -155,11 +162,11 @@ void st_open_socket(int port_number)
 		exit(1);
 	}
 
-	struct sockaddr_in serv_addr;
-	memset(&serv_addr, 0, sizeof(serv_addr));
-	serv_addr.sin_family = AF_INET;
-	serv_addr.sin_addr.s_addr = INADDR_ANY;
-	serv_addr.sin_port = htons(port_number);
+	struct sockaddr_in serv_addr = {
+		.sin_addr = {INADDR_ANY},
+		.sin_port = htons(port_number),
+		.sin_family = AF_INET,
+	};
 
 	if (bind
 	    (server_socket_fd, (struct sockaddr *)&serv_addr,

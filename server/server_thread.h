@@ -1,11 +1,10 @@
 #ifndef SERVER_THREAD_H
 #define SERVER_THREAD_H
 
+#include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-
-#include <pthread.h>
 #include <unistd.h>
 
 extern bool accepting_connections;

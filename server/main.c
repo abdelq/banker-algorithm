@@ -14,11 +14,10 @@ int main(int argc, char *argv[argc + 1])
 
 	int port_number = atoi(argv[1]);
 	int num_server_threads = atoi(argv[2]);
+
 	server_thread *st = malloc(num_server_threads * sizeof(server_thread));
-
-	st_open_socket(port_number);	// Ouvre un socket
-
-	st_init();		// Initialise le serveur
+	st_open_socket(port_number);
+	st_init();
 
 	// Part les fils d'exécution
 	for (int i = 0; i < num_server_threads; i++) {
@@ -31,7 +30,8 @@ int main(int argc, char *argv[argc + 1])
 	for (int i = 0; i < num_server_threads; i++)
 		pthread_join(st[i].pt_tid, NULL);
 
-	st_signal();		// Signale aux clients de se terminer
+	// Signale aux clients de se terminer
+	st_signal();
 
 	// Affiche le journal
 	st_print_results(stdout, true);
