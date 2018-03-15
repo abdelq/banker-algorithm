@@ -1,13 +1,5 @@
-#define _XOPEN_SOURCE 500
-
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
 
 #include "client_thread.h"
 
@@ -15,13 +7,11 @@ sockaddr_in server_addr = {
 	.sin_family = AF_INET
 };
 
+int num_clients;
 int num_request_per_client;
 int num_resources;
 int *provis_resources;
 int **cur_resources_per_client;
-
-// Variable d'initialisation des threads clients
-unsigned int count = 0;
 
 /* Variables du journal */
 // Nombre de requêtes acceptées (ACK reçus en réponse à REQ)
@@ -111,7 +101,7 @@ int send_beg()
 		close(socket_fd);
 		return 0;
 	}
-	// TODO Manage reception
+// TODO Manage reception
 
 	close(socket_fd);
 	return 1;
@@ -137,7 +127,7 @@ int send_pro()
 		close(socket_fd);
 		return 0;
 	}
-	// TODO Manage reception
+// TODO Manage reception
 
 	close(socket_fd);
 	return 1;
@@ -154,7 +144,7 @@ int send_end()
 		close(socket_fd);
 		return 0;
 	}
-	// TODO Manage reception
+// TODO Manage reception
 
 	close(socket_fd);
 	return 1;
@@ -175,7 +165,7 @@ int send_ini(int client_id, int socket_fd)
 		perror("ERROR on sending INI");
 		return 0;
 	}
-	// TODO Manage reception
+// TODO Manage reception
 
 	return 1;
 }
@@ -195,30 +185,41 @@ int send_req(int client_id, int socket_fd, int request_id)
 		perror("ERROR on sending REQ");
 		return 0;
 	}
-	// TODO Manage reception
+// TODO Manage reception
 
-	/* XXX */
+/* XXX */
 	fprintf(stdout, "Client %d is sending its %d request\n",
 		client_id, request_id);
 
 	pthread_mutex_lock(&mutex_request_sent);
 	request_sent++;
 	pthread_mutex_unlock(&mutex_request_sent);
-	/* XXX */
+/* XXX */
 
 	return 1;
 }
 
+// FIXME Review
 int send_clo(int client_id, int socket_fd)
 {
-	char buf[128];		// XXX
-	int len = snprintf(buf, sizeof(buf), "CLO %d\n", client_id);
+	char send_buf[17], recv_buf[256];	// XXX
 
-	if (sendall(socket_fd, buf, len, 0) < 0) {
-		perror("ERROR on sending CLO");
+	int len = snprintf(send_buf, sizeof(send_buf), "CLO %d\n", client_id);
+
+	do {
+		if (sendall(socket_fd, send_buf, len, 0) < 0) {
+			perror("ERROR on sending CLO");
+			return 0;
+		}
+		// XXX Proper receiving + bzero
+		if (recvall(socket_fd, recv_buf, len, 0) < 0) {
+			perror("ERROR on receiving CLO");
+			return 0;
+		}
+	} while (strncmp(recv_buf, "WAIT", 4) == 0);	// XXX
+
+	if (strncmp(recv_buf, "ERR", 3) == 0)
 		return 0;
-	}
-	// TODO Manage reception
 
 	return 1;
 }
@@ -233,6 +234,7 @@ void *ct_code(void *param)
 	if (!send_ini(ct->id, socket_fd))
 		goto undispatched;
 
+	struct timespec delay = { 0, rand() % (100 * 1000) };
 	for (int req_id = 0; req_id < num_request_per_client; req_id++) {
 		if (send_req(ct->id, socket_fd, req_id)) {
 			pthread_mutex_lock(&mutex_count_accepted);
@@ -245,7 +247,7 @@ void *ct_code(void *param)
 		}
 
 		// Attendre un petit peu pour simuler le calcul
-		usleep(rand() % (100 * 1000));	// XXX Not uniform (usage of modulo)
+		nanosleep(&delay, NULL);
 	}
 
 	if (!send_clo(ct->id, socket_fd))
@@ -264,7 +266,7 @@ void *ct_code(void *param)
 void ct_wait_server()
 {
 	// XXX Possible race condition
-	while (count_dispatched + count_undispatched < count)
+	while (count_dispatched + count_undispatched < num_clients)
 		sleep(1);
 
 	pthread_mutex_destroy(&mutex_count_accepted);
@@ -274,7 +276,7 @@ void ct_wait_server()
 	pthread_mutex_destroy(&mutex_count_undispatched);
 	pthread_mutex_destroy(&mutex_request_sent);
 
-	for (int i = 0; i < count; i++)
+	for (int i = 0; i < num_clients; i++)
 		free(cur_resources_per_client[i]);
 }
 
@@ -286,10 +288,10 @@ void ct_create_and_start(client_thread * ct)
 	pthread_attr_destroy(&(ct->pt_attr));
 }
 
-void ct_init(client_thread * ct)
+void ct_init(client_thread * ct, int id)
 {
-	ct->id = count++;
-	cur_resources_per_client[ct->id] = calloc(num_resources, sizeof(int));
+	ct->id = id;
+	cur_resources_per_client[id] = calloc(num_resources, sizeof(int));
 }
 
 void st_print_results(FILE * fd, bool verbose)
@@ -299,7 +301,7 @@ void st_print_results(FILE * fd, bool verbose)
 	if (verbose) {
 		fprintf(fd, "\n---- Résultat du client ----\n");
 		fprintf(fd, "Requêtes acceptées : %d\n", count_accepted);
-		fprintf(fd, "Requêtes : %d\n", count_on_wait);
+		fprintf(fd, "Requêtes en attente : %d\n", count_on_wait);
 		fprintf(fd, "Requêtes invalides : %d\n", count_invalid);
 		fprintf(fd, "Clients : %d\n", count_dispatched);
 		fprintf(fd, "Requêtes envoyées : %d\n", request_sent);

@@ -4,14 +4,17 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-
 #include <pthread.h>
-#include <unistd.h>
+
+#include <netinet/in.h>
 
 /* Adresse TCP sur lequel le serveur attend des connections */
 typedef struct sockaddr sockaddr;
 typedef struct sockaddr_in sockaddr_in;
 extern sockaddr_in server_addr;
+
+/* Nombre de clients */
+extern int num_clients;
 
 /* Nombre de requêtes que chaque client doit envoyer */
 extern int num_request_per_client;
@@ -31,7 +34,7 @@ typedef struct client_thread {
 	pthread_attr_t pt_attr;
 } client_thread;
 
-void ct_init(client_thread *);
+void ct_init(client_thread *, int);
 void ct_create_and_start(client_thread *);
 void ct_wait_server();
 

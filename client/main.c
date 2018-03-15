@@ -1,16 +1,10 @@
-#define _XOPEN_SOURCE
-
-#include <stdlib.h>
-
-#include <netinet/in.h>
-
 #include "client_thread.h"
 
 int main(int argc, char *argv[])
 {
 	if (argc < 5) {
 		fprintf(stderr,
-			"Usage: %s <port-nb> <nb-clients> <nb-requests> <resources>...\n",
+			"Usage: %s PORT CLIENTS REQUESTS RESOURCES...\n",
 			argv[0]);
 		exit(1);
 	}
@@ -18,7 +12,7 @@ int main(int argc, char *argv[])
 	server_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 	server_addr.sin_port = htons(atoi(argv[1]));
 
-	int num_clients = atoi(argv[2]);
+	num_clients = atoi(argv[2]);
 	num_request_per_client = atoi(argv[3]);
 	num_resources = argc - 4;
 
@@ -32,7 +26,7 @@ int main(int argc, char *argv[])
 
 		client_thread client_threads[num_clients];
 		for (int i = 0; i < num_clients; i++)
-			ct_init(&(client_threads[i]));
+			ct_init(&(client_threads[i]), i);
 		for (int i = 0; i < num_clients; i++)
 			ct_create_and_start(&(client_threads[i]));
 		ct_wait_server();
