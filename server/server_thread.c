@@ -49,7 +49,7 @@ struct {
 	int **max;
 	int **allocation;
 	int **need;
-    pthread_mutex_t mutex;
+	pthread_mutex_t mutex;
 } banker;
 
 static void sigint_handler(int signum)
@@ -62,7 +62,7 @@ void st_init()
 	// Handle interrupt
 	signal(SIGINT, &sigint_handler);
 
-    pthread_mutex_init(&banker.mutex, NULL);
+	pthread_mutex_init(&banker.mutex, NULL);
 	// TODO
 
 	// Attend la connection d'un client et initialise les structures pour
@@ -94,6 +94,7 @@ void st_process_requests(server_thread * st, int socket_fd)
 		       args);
 
 		fprintf(socket_w, "ERR Unknown command\n");
+		// XXX fflush(socket_w);
 		free(args);
 	}
 
@@ -104,7 +105,7 @@ void st_process_requests(server_thread * st, int socket_fd)
 
 void st_signal()
 {
-    pthread_mutex_destroy(&banker.mutex); // XXX
+	pthread_mutex_destroy(&banker.mutex);	// XXX
 	// TODO Remplacer le contenu de cette fonction
 }
 
@@ -184,7 +185,7 @@ void st_print_results(FILE * fd, bool verbose)
 	if (verbose) {
 		fprintf(fd, "\n---- Résultat du serveur ----\n");
 		fprintf(fd, "Requêtes acceptées : %d\n", count_accepted);
-		fprintf(fd, "Requêtes : %d\n", count_wait);
+		fprintf(fd, "Requêtes en attente : %d\n", count_wait);
 		fprintf(fd, "Requêtes invalides : %d\n", count_invalid);
 		fprintf(fd, "Clients : %d\n", count_dispatched);
 		fprintf(fd, "Requêtes traitées : %d\n", request_processed);
