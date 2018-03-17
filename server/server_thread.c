@@ -498,3 +498,8 @@ void st_print_results(FILE * fd, bool verbose)
 			count_invalid, count_dispatched, request_processed);
 	}
 }
+
+bool bankers_algo(int* req){
+    printf("Banker's Algo going on!");
+    
+}
