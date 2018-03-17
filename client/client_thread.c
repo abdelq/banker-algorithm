@@ -3,9 +3,8 @@
 
 #include "client_thread.h"
 
-sockaddr_in server_addr = {
-	.sin_family = AF_INET
-};
+sockaddr_in server_addr = {.sin_family = AF_INET };
+enum server_ans { ACK, WAIT, ERR };
 
 int num_clients;
 int num_request_per_client;
@@ -54,13 +53,13 @@ int create_connected_socket()
 	return socket_fd;
 }
 
-int sendall(int socket, const void *buffer, size_t length, int flags)
+int sendall(int socket, const void *buffer, size_t length)
 {
-	const char *buf = (char *)buffer;
+	const char *buf = (char *)buffer;	// XXX const
 	ssize_t sent;
 
 	while (length > 0) {
-		if ((sent = send(socket, buf, length, flags)) < 0)
+		if ((sent = send(socket, buf, length, 0)) < 0)
 			return -1;
 
 		buf += sent;
@@ -70,8 +69,8 @@ int sendall(int socket, const void *buffer, size_t length, int flags)
 	return 0;
 }
 
-// FIXME Use getline instead
-int recvall(int socket, void *buffer, size_t length, int flags)
+// TODO Function to process answer (ACK, ERR, WAIT)
+/*int recvall(int socket, void *buffer, size_t length, int flags)
 {
 	char *buf = (char *)buffer;
 	ssize_t received;
@@ -85,7 +84,7 @@ int recvall(int socket, void *buffer, size_t length, int flags)
 	}
 
 	return 0;
-}
+}*/
 
 int send_beg()
 {
@@ -93,15 +92,16 @@ int send_beg()
 	if (socket_fd < 0)
 		return 0;
 
-	char buf[128];		// XXX
-	int len = snprintf(buf, sizeof(buf), "BEG %d\n", num_resources);
+	char send_buf[64], recv_buf[64];
+	int len =
+	    snprintf(send_buf, sizeof(send_buf), "BEG %d\n", num_resources);
 
-	if (sendall(socket_fd, buf, len, 0) < 0) {
+	if (sendall(socket_fd, send_buf, len) < 0) {
 		perror("ERROR on sending BEG");
 		close(socket_fd);
 		return 0;
 	}
-// TODO Manage reception
+	// TODO Manage reception
 
 	close(socket_fd);
 	return 1;
@@ -122,7 +122,7 @@ int send_pro()
 	}
 	strncat(buf, "\n", sizeof(buf));
 
-	if (sendall(socket_fd, buf, len, 0) < 0) {
+	if (sendall(socket_fd, buf, len) < 0) {
 		perror("ERROR on sending PRO");
 		close(socket_fd);
 		return 0;
@@ -139,7 +139,7 @@ int send_end()
 	if (socket_fd < 0)
 		return 0;
 
-	if (sendall(socket_fd, "END\n", 4, 0) < 0) {	// XXX
+	if (sendall(socket_fd, "END\n", 4) < 0) {	// XXX
 		perror("ERROR on sending END");
 		close(socket_fd);
 		return 0;
@@ -161,7 +161,7 @@ int send_ini(int client_id, int socket_fd)
 	}
 	strncat(buf, "\n", sizeof(buf));
 
-	if (sendall(socket_fd, buf, len, 0) < 0) {
+	if (sendall(socket_fd, buf, len) < 0) {
 		perror("ERROR on sending INI");
 		return 0;
 	}
@@ -181,7 +181,7 @@ int send_req(int client_id, int socket_fd, int request_id)
 	}
 	strncat(buf, "\n", sizeof(buf));
 
-	if (sendall(socket_fd, buf, len, 0) < 0) {
+	if (sendall(socket_fd, buf, len) < 0) {
 		perror("ERROR on sending REQ");
 		return 0;
 	}
@@ -199,7 +199,7 @@ int send_req(int client_id, int socket_fd, int request_id)
 	return 1;
 }
 
-// FIXME Review
+// FIXME Review (ACK should increment dispatched)
 int send_clo(int client_id, int socket_fd)
 {
 	char send_buf[17], recv_buf[256];	// XXX
@@ -207,15 +207,15 @@ int send_clo(int client_id, int socket_fd)
 	int len = snprintf(send_buf, sizeof(send_buf), "CLO %d\n", client_id);
 
 	do {
-		if (sendall(socket_fd, send_buf, len, 0) < 0) {
+		if (sendall(socket_fd, send_buf, len) < 0) {
 			perror("ERROR on sending CLO");
 			return 0;
 		}
 		// XXX Proper receiving + bzero
-		if (recvall(socket_fd, recv_buf, len, 0) < 0) {
-			perror("ERROR on receiving CLO");
-			return 0;
-		}
+		/*if (recvall(socket_fd, recv_buf, len, 0) < 0) {
+		   perror("ERROR on receiving CLO");
+		   return 0;
+		   } */
 	} while (strncmp(recv_buf, "WAIT", 4) == 0);	// XXX
 
 	if (strncmp(recv_buf, "ERR", 3) == 0)
@@ -229,27 +229,30 @@ void *ct_code(void *param)
 	int socket_fd = create_connected_socket();
 	if (socket_fd < 0)
 		goto undispatched;
-
 	client_thread *ct = (client_thread *) param;
+
+	// INI
 	if (!send_ini(ct->id, socket_fd))
 		goto undispatched;
 
-	struct timespec delay = { 0, rand() % (100 * 1000) };
+	// REQ
 	for (int req_id = 0; req_id < num_request_per_client; req_id++) {
 		if (send_req(ct->id, socket_fd, req_id)) {
 			pthread_mutex_lock(&mutex_count_accepted);
 			count_accepted++;
 			pthread_mutex_unlock(&mutex_count_accepted);
-		} else {
+		} else { // XXX On reception of ERR only?
 			pthread_mutex_lock(&mutex_count_invalid);
 			count_invalid++;
 			pthread_mutex_unlock(&mutex_count_invalid);
 		}
 
-		// Attendre un petit peu pour simuler le calcul
+		// Attendre un petit peu (<0.1ms) pour simuler le calcul
+		struct timespec delay = { 0, rand() % (100 * 1000) };
 		nanosleep(&delay, NULL);
 	}
 
+	// CLO
 	if (!send_clo(ct->id, socket_fd))
 		goto undispatched;
 
