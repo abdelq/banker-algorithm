@@ -1,4 +1,7 @@
+#define _XOPEN_SOURCE 500
+
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "client_thread.h"
@@ -39,7 +42,6 @@ pthread_mutex_t mutex_count_undispatched = PTHREAD_MUTEX_INITIALIZER;
 unsigned int request_sent = 0;
 pthread_mutex_t mutex_request_sent = PTHREAD_MUTEX_INITIALIZER;
 
-// TODO Look for a nicer solution
 int create_connected_socket()
 {
 	int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -56,7 +58,6 @@ int create_connected_socket()
 	return socket_fd;
 }
 
-// TODO Use write instead
 // Sends to socket until all the message of a certain length in buffer is sent
 int sendall(int socket, char *buffer, size_t length)
 {
@@ -74,7 +75,6 @@ int sendall(int socket, char *buffer, size_t length)
 	return 0;
 }
 
-// TODO Use read instead
 // Receives from socket until a newline or EOF is encountered
 // Source: eg.bucknell.edu/~csci335/2006-fall/code/cServer/readln.cc
 int recvline(int socket, char *buffer, size_t length)
@@ -102,15 +102,18 @@ int send_beg()
 	if (socket_fd < 0)
 		return 0;
 
-	char send_buf[64], recv_buf[64];
+	char send_buf[64], recv_buf[64]; // XXX
 	int len = snprintf(send_buf, sizeof(send_buf),
 			   "BEG %d\n", num_resources);
 
 	do {
+		// Send
 		if (sendall(socket_fd, send_buf, len) < 0) {
 			perror("BEG: ERROR on sending");
 			goto close;
 		}
+		// Receive
+		memset(recv_buf, '\0', sizeof(recv_buf));
 		if (recvline(socket_fd, recv_buf, sizeof(recv_buf)) < 0) {
 			perror("BEG: ERROR on receiving");
 			goto close;
