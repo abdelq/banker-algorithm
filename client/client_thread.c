@@ -95,36 +95,44 @@ int recvline(int socket, char *buffer, size_t length)
 	return buf - buffer;
 }
 
-// TODO Parse the string with sscanf for WAIT (time) and ERR (message)
+int send_cmd(int socket, char *send_buf, char *recv_buf)
+{
+	int wait = 0;
+
+	do {
+		// Send
+		sleep(wait);
+		if (sendall(socket, send_buf, strlen(send_buf)) < 0)
+			return -1;
+		// Receive
+		memset(recv_buf, '\0', strlen(recv_buf));
+		if (recvline(socket, recv_buf, sizeof(recv_buf)) < 0)
+			return -1;
+	} while (sscanf(recv_buf, "WAIT %d\n", &wait) == 1);
+
+	return 0;
+}
+
 int send_beg()
 {
 	int socket_fd = create_connected_socket();
 	if (socket_fd < 0)
 		return 0;
 
-	char send_buf[64], recv_buf[64]; // XXX
-	int len = snprintf(send_buf, sizeof(send_buf),
-			   "BEG %d\n", num_resources);
+	char send_buf[128] = "", recv_buf[128] = "";	// XXX
+	snprintf(send_buf, sizeof(send_buf), "BEG %d\n", num_resources);
 
-	do {
-		// Send
-		if (sendall(socket_fd, send_buf, len) < 0) {
-			perror("BEG: ERROR on sending");
-			goto close;
-		}
-		// Receive
-		memset(recv_buf, '\0', sizeof(recv_buf));
-		if (recvline(socket_fd, recv_buf, sizeof(recv_buf)) < 0) {
-			perror("BEG: ERROR on receiving");
-			goto close;
-		}
-	} while (strncmp(recv_buf, "WAIT", 4) == 0);
+	if (send_cmd(socket_fd, send_buf, recv_buf) < 0) {
+		perror("BEG");
+		goto close;
+	}
 
 	if (strncmp(recv_buf, "ACK", 3) == 0) {
 		close(socket_fd);
 		return 1;
 	}
 
+	fprintf(stderr, "BEG: %s\n", recv_buf);
  close:
 	close(socket_fd);
 	return 0;
@@ -136,24 +144,27 @@ int send_pro()
 	if (socket_fd < 0)
 		return 0;
 
-	char buf[256];		// XXX
-	int len = snprintf(buf, sizeof(buf), "PRO");	// XXX
-	for (int i = 0; i < num_resources; i++) {
-		len +=
-		    snprintf(buf + len, sizeof(buf), " %d",
-			     provis_resources[i]);
-	}
-	strncat(buf, "\n", sizeof(buf));
+	char send_buf[128] = "PRO", recv_buf[128] = "";	// XXX
+	int len = 3;
+	for (int i = 0; i < num_resources; i++)
+		len += snprintf(send_buf + len, sizeof(send_buf) - len,
+				" %d", provis_resources[i]);
+	strncat(send_buf, "\n", sizeof(send_buf) - len);	// XXX
 
-	if (sendall(socket_fd, buf, len) < 0) {
-		perror("ERROR on sending PRO");
+	if (send_cmd(socket_fd, send_buf, recv_buf) < 0) {
+		perror("PRO");
+		goto close;
+	}
+
+	if (strncmp(recv_buf, "ACK", 3) == 0) {
 		close(socket_fd);
-		return 0;
+		return 1;
 	}
-// TODO Manage reception
 
+	fprintf(stderr, "PRO: %s\n", recv_buf);
+ close:
 	close(socket_fd);
-	return 1;
+	return 0;
 }
 
 int send_end()
@@ -162,89 +173,89 @@ int send_end()
 	if (socket_fd < 0)
 		return 0;
 
-	if (sendall(socket_fd, "END\n", 4) < 0) {	// XXX
-		perror("ERROR on sending END");
-		close(socket_fd);
-		return 0;
-	}
-// TODO Manage reception
+	char send_buf[128] = "END\n", recv_buf[128] = "";	// XXX
 
+	if (send_cmd(socket_fd, send_buf, recv_buf) < 0) {
+		perror("END");
+		goto close;
+	}
+
+	if (strncmp(recv_buf, "ACK", 3) == 0) {
+		close(socket_fd);
+		return 1;
+	}
+
+	fprintf(stderr, "END: %s\n", recv_buf);
+ close:
 	close(socket_fd);
-	return 1;
+	return 0;
 }
 
 int send_ini(int client_id, int socket_fd)
 {
-	char buf[256];		// XXX
-	int len = snprintf(buf, sizeof(buf), "INI %d", client_id);
+	char send_buf[128] = "", recv_buf[128] = "";	// XXX
+	int len = snprintf(send_buf, sizeof(send_buf), "INI %d", client_id);
 	for (int i = 0; i < num_resources; i++) {
 		// Source: c-faq.com/lib/randrange
 		int max = rand() / (RAND_MAX / (provis_resources[i] + 1) + 1);
-		len += snprintf(buf + len, sizeof(buf), " %d", max);
+		len += snprintf(send_buf + len, sizeof(send_buf) - len,
+				" %d", max);
 	}
-	strncat(buf, "\n", sizeof(buf));
+	strncat(send_buf, "\n", sizeof(send_buf) - len);	// XXX
 
-	if (sendall(socket_fd, buf, len) < 0) {
-		perror("ERROR on sending INI");
+	if (send_cmd(socket_fd, send_buf, recv_buf) < 0) {
+		perror("INI");
 		return 0;
 	}
-// TODO Manage reception
 
-	return 1;
+	if (strncmp(recv_buf, "ACK", 3) == 0)
+		return 1;
+
+	fprintf(stderr, "INI: %s\n", recv_buf);
+	return 0;
 }
 
-// TODO Dernière requête doit libérer toutes les ressources accumulées
+// FIXME Dernière requête doit libérer toutes les ressources accumulées
+// FIXME Waiting needs to increment counter_wait
 int send_req(int client_id, int socket_fd, int request_id)
 {
-	char buf[256];		// XXX
-	int len = snprintf(buf, sizeof(buf), "REQ %d", client_id);
+	char send_buf[128] = "", recv_buf[128] = "";	// XXX
+	int len = snprintf(send_buf, sizeof(send_buf), "REQ %d", client_id);
 	for (int i = 0; i < num_resources; i++) {
-		int req = 42;	// TODO [-courant, max]
-		len += snprintf(buf + len, sizeof(buf), " %d", req);
+		int req = 42;	// FIXME random between [-courant, max] + update courant
+		len += snprintf(send_buf + len, sizeof(send_buf) - len,
+				" %d", req);
 	}
-	strncat(buf, "\n", sizeof(buf));
+	strncat(send_buf, "\n", sizeof(send_buf) - len);	// XXX
 
-	if (sendall(socket_fd, buf, len) < 0) {
-		perror("ERROR on sending REQ");
+	printf("Client %d is sending its %d request\n", client_id, request_id);
+	if (send_cmd(socket_fd, send_buf, recv_buf) < 0) {
+		perror("REQ");
 		return 0;
 	}
-// TODO Manage reception
 
-/* XXX */
-	fprintf(stdout, "Client %d is sending its %d request\n",
-		client_id, request_id);
+	if (strncmp(recv_buf, "ACK", 3) == 0)
+		return 1;
 
-	pthread_mutex_lock(&mutex_request_sent);
-	request_sent++;
-	pthread_mutex_unlock(&mutex_request_sent);
-/* XXX */
-
-	return 1;
+	fprintf(stderr, "REQ: %s\n", recv_buf);
+	return 0;
 }
 
-// FIXME Review (ACK should increment dispatched)
 int send_clo(int client_id, int socket_fd)
 {
-	char send_buf[17], recv_buf[256];	// XXX
+	char send_buf[128] = "", recv_buf[128] = "";	// XXX
+	snprintf(send_buf, sizeof(send_buf), "CLO %d\n", client_id);
 
-	int len = snprintf(send_buf, sizeof(send_buf), "CLO %d\n", client_id);
-
-	do {
-		if (sendall(socket_fd, send_buf, len) < 0) {
-			perror("ERROR on sending CLO");
-			return 0;
-		}
-		// XXX Proper receiving + bzero
-		/*if (recvall(socket_fd, recv_buf, len, 0) < 0) {
-		   perror("ERROR on receiving CLO");
-		   return 0;
-		   } */
-	} while (strncmp(recv_buf, "WAIT", 4) == 0);	// XXX
-
-	if (strncmp(recv_buf, "ERR", 3) == 0)
+	if (send_cmd(socket_fd, send_buf, recv_buf) < 0) {
+		perror("CLO");
 		return 0;
+	}
 
-	return 1;
+	if (strncmp(recv_buf, "ACK", 3) == 0)
+		return 1;
+
+	fprintf(stderr, "CLO: %s\n", recv_buf);
+	return 0;
 }
 
 void *ct_code(void *param)
@@ -269,6 +280,10 @@ void *ct_code(void *param)
 			count_invalid++;
 			pthread_mutex_unlock(&mutex_count_invalid);
 		}
+		// XXX
+		pthread_mutex_lock(&mutex_request_sent);
+		request_sent++;
+		pthread_mutex_unlock(&mutex_request_sent);
 
 		// Attendre un petit peu (<0.1ms) pour simuler le calcul
 		struct timespec delay = { 0, rand() % (100 * 1000) };
@@ -279,6 +294,9 @@ void *ct_code(void *param)
 	if (!send_clo(ct->id, socket_fd))
 		goto undispatched;
 
+	pthread_mutex_lock(&mutex_count_dispatched);
+	count_dispatched++;
+	pthread_mutex_unlock(&mutex_count_dispatched);
 	close(socket_fd);
 	return NULL;
  undispatched:
