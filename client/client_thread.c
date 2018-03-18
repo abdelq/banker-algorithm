@@ -95,22 +95,23 @@ int recvline(int socket, char *buffer, size_t length)
 	return buf - buffer;
 }
 
+// Returns number of WAIT commands received on success or -1 on error
 int send_cmd(int socket, char *send_buf, char *recv_buf)
 {
-	int wait = 0;
+	int wait_num = 0, wait_dur = 0;
 
 	do {
 		// Send
-		sleep(wait);
+		sleep(wait_dur);
 		if (sendall(socket, send_buf, strlen(send_buf)) < 0)
 			return -1;
 		// Receive
 		memset(recv_buf, '\0', strlen(recv_buf));
 		if (recvline(socket, recv_buf, sizeof(recv_buf)) < 0)
 			return -1;
-	} while (sscanf(recv_buf, "WAIT %d\n", &wait) == 1);
+	} while (sscanf(recv_buf, "WAIT %d\n", &wait_dur) == 1 && ++wait_num);
 
-	return 0;
+	return wait_num;
 }
 
 int send_beg()
@@ -216,7 +217,6 @@ int send_ini(int client_id, int socket_fd)
 }
 
 // FIXME Dernière requête doit libérer toutes les ressources accumulées
-// FIXME Waiting needs to increment counter_wait
 int send_req(int client_id, int socket_fd, int request_id)
 {
 	char send_buf[128] = "", recv_buf[128] = "";	// XXX
@@ -228,14 +228,28 @@ int send_req(int client_id, int socket_fd, int request_id)
 	}
 	strncat(send_buf, "\n", sizeof(send_buf) - len);	// XXX
 
-	printf("Client %d is sending its %d request\n", client_id, request_id);
-	if (send_cmd(socket_fd, send_buf, recv_buf) < 0) {
+	int waits;
+	if ((waits = send_cmd(socket_fd, send_buf, recv_buf)) < 0) {
 		perror("REQ");
 		return 0;
+	} else if (waits > 0) {
+		pthread_mutex_lock(&mutex_count_on_wait);
+		count_on_wait += waits;
+		pthread_mutex_unlock(&mutex_count_on_wait);
 	}
 
-	if (strncmp(recv_buf, "ACK", 3) == 0)
+	if (strncmp(recv_buf, "ACK", 3) == 0) {
+		pthread_mutex_lock(&mutex_count_accepted);
+		count_accepted++;
+		pthread_mutex_unlock(&mutex_count_accepted);
 		return 1;
+	}
+
+	if (strncmp(recv_buf, "ERR", 3) == 0) {
+		pthread_mutex_lock(&mutex_count_invalid);
+		count_invalid++;
+		pthread_mutex_unlock(&mutex_count_invalid);
+	}
 
 	fprintf(stderr, "REQ: %s\n", recv_buf);
 	return 0;
@@ -271,18 +285,11 @@ void *ct_code(void *param)
 
 	// REQ
 	for (int req_id = 0; req_id < num_request_per_client; req_id++) {
-		if (send_req(ct->id, socket_fd, req_id)) {
-			pthread_mutex_lock(&mutex_count_accepted);
-			count_accepted++;
-			pthread_mutex_unlock(&mutex_count_accepted);
-		} else {	// XXX On reception of ERR only?
-			pthread_mutex_lock(&mutex_count_invalid);
-			count_invalid++;
-			pthread_mutex_unlock(&mutex_count_invalid);
-		}
-		// XXX
+		printf("Client %d is sending its %d request\n", ct->id, req_id);
+		send_req(ct->id, socket_fd, req_id);
+
 		pthread_mutex_lock(&mutex_request_sent);
-		request_sent++;
+		request_sent++;	// XXX
 		pthread_mutex_unlock(&mutex_request_sent);
 
 		// Attendre un petit peu (<0.1ms) pour simuler le calcul
