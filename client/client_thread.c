@@ -6,7 +6,6 @@
 
 #include "client_thread.h"
 
-//enum server_ans { ACK, WAIT, ERR };
 sockaddr_in server_addr = {
 	.sin_family = AF_INET
 };
@@ -126,7 +125,8 @@ int send_beg()
 
 	if (send_cmd(socket_fd, send_buf, recv_buf) < 0) {
 		perror("BEG");
-		goto close;
+		close(socket_fd);
+		return 0;
 	}
 
 	if (strncmp(recv_buf, "ACK", 3) == 0) {
@@ -135,7 +135,6 @@ int send_beg()
 	}
 
 	fprintf(stderr, "BEG: %s\n", recv_buf);
- close:
 	close(socket_fd);
 	return 0;
 }
@@ -155,7 +154,8 @@ int send_pro()
 
 	if (send_cmd(socket_fd, send_buf, recv_buf) < 0) {
 		perror("PRO");
-		goto close;
+		close(socket_fd);
+		return 0;
 	}
 
 	if (strncmp(recv_buf, "ACK", 3) == 0) {
@@ -164,7 +164,6 @@ int send_pro()
 	}
 
 	fprintf(stderr, "PRO: %s\n", recv_buf);
- close:
 	close(socket_fd);
 	return 0;
 }
@@ -179,7 +178,8 @@ int send_end()
 
 	if (send_cmd(socket_fd, send_buf, recv_buf) < 0) {
 		perror("END");
-		goto close;
+		close(socket_fd);
+		return 0;
 	}
 
 	if (strncmp(recv_buf, "ACK", 3) == 0) {
@@ -188,7 +188,6 @@ int send_end()
 	}
 
 	fprintf(stderr, "END: %s\n", recv_buf);
- close:
 	close(socket_fd);
 	return 0;
 }
