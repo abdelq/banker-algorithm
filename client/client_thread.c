@@ -197,11 +197,13 @@ int send_ini(int client_id, int socket_fd)
 {
 	char send_buf[128] = "", recv_buf[128] = "";	// XXX
 	int len = snprintf(send_buf, sizeof(send_buf), "INI %d", client_id);
+	int ini_resources[num_resources];
 	for (int i = 0; i < num_resources; i++) {
 		// Source: c-faq.com/lib/randrange
-		int max = rand() / (RAND_MAX / (provis_resources[i] + 1) + 1);
+		ini_resources[i] =
+		    rand() / (RAND_MAX / (provis_resources[i] + 1) + 1);
 		len += snprintf(send_buf + len, sizeof(send_buf) - len,
-				" %d", max);
+				" %d", ini_resources[i]);
 	}
 	strncat(send_buf, "\n", sizeof(send_buf) - len);	// XXX
 
@@ -211,8 +213,9 @@ int send_ini(int client_id, int socket_fd)
 	}
 
 	if (strncmp(recv_buf, "ACK", 3) == 0) {
-		// FIXME Update max_resources_per_client
-
+		for (int i = 0; i < num_resources; i++)
+			max_resources_per_client[client_id][i] =
+			    ini_resources[i];
 		return 1;
 	}
 
@@ -224,17 +227,18 @@ int send_req(int client_id, int socket_fd, int request_id, int free)
 {
 	char send_buf[128] = "", recv_buf[128] = "";	// XXX
 	int len = snprintf(send_buf, sizeof(send_buf), "REQ %d", client_id);
+	int req_resources[num_resources];
 	for (int i = 0; i < num_resources; i++) {
-		int cur_res = cur_resources_per_client[client_id][i];
-		int max_res = max_resources_per_client[client_id][i];
+		int cur = cur_resources_per_client[client_id][i];
+		int max = max_resources_per_client[client_id][i];
 
-		int req = -cur_res;
+		req_resources[i] = -cur;
 		if (!free)
-			req +=
-			    rand() / (RAND_MAX / (max_res + cur_res + 1) + 1);
+			req_resources[i] +=
+			    rand() / (RAND_MAX / (max + cur + 1) + 1);
 
 		len += snprintf(send_buf + len, sizeof(send_buf) - len,
-				" %d", req);
+				" %d", req_resources[i]);
 	}
 	strncat(send_buf, "\n", sizeof(send_buf) - len);	// XXX
 
@@ -252,9 +256,9 @@ int send_req(int client_id, int socket_fd, int request_id, int free)
 		pthread_mutex_lock(&mutex_count_accepted);
 		count_accepted++;
 		pthread_mutex_unlock(&mutex_count_accepted);
-
-		// FIXME Update cur_resources_per_client
-
+		for (int i = 0; i < num_resources; i++)
+			cur_resources_per_client[client_id][i] +=
+			    req_resources[i];
 		return 1;
 	}
 
