@@ -16,6 +16,7 @@ int num_request_per_client;
 int num_resources;
 int *provis_resources;
 int **cur_resources_per_client;
+int **max_resources_per_client;
 
 /* Variables du journal */
 // Nombre de requêtes acceptées (ACK reçus en réponse à REQ)
@@ -209,20 +210,29 @@ int send_ini(int client_id, int socket_fd)
 		return 0;
 	}
 
-	if (strncmp(recv_buf, "ACK", 3) == 0)
+	if (strncmp(recv_buf, "ACK", 3) == 0) {
+		// FIXME Update max_resources_per_client
+
 		return 1;
+	}
 
 	fprintf(stderr, "INI: %s\n", recv_buf);
 	return 0;
 }
 
-// FIXME Dernière requête doit libérer toutes les ressources accumulées
-int send_req(int client_id, int socket_fd, int request_id)
+int send_req(int client_id, int socket_fd, int request_id, int free)
 {
 	char send_buf[128] = "", recv_buf[128] = "";	// XXX
 	int len = snprintf(send_buf, sizeof(send_buf), "REQ %d", client_id);
 	for (int i = 0; i < num_resources; i++) {
-		int req = 42;	// FIXME random between [-courant, max] + update courant
+		int cur_res = cur_resources_per_client[client_id][i];
+		int max_res = max_resources_per_client[client_id][i];
+
+		int req = -cur_res;
+		if (!free)
+			req +=
+			    rand() / (RAND_MAX / (max_res + cur_res + 1) + 1);
+
 		len += snprintf(send_buf + len, sizeof(send_buf) - len,
 				" %d", req);
 	}
@@ -242,6 +252,9 @@ int send_req(int client_id, int socket_fd, int request_id)
 		pthread_mutex_lock(&mutex_count_accepted);
 		count_accepted++;
 		pthread_mutex_unlock(&mutex_count_accepted);
+
+		// FIXME Update cur_resources_per_client
+
 		return 1;
 	}
 
@@ -286,7 +299,8 @@ void *ct_code(void *param)
 	// REQ
 	for (int req_id = 0; req_id < num_request_per_client; req_id++) {
 		printf("Client %d is sending its %d request\n", ct->id, req_id);
-		send_req(ct->id, socket_fd, req_id);
+		send_req(ct->id, socket_fd, req_id,
+			 num_request_per_client - req_id == 1);
 
 		pthread_mutex_lock(&mutex_request_sent);
 		request_sent++;	// XXX
@@ -327,8 +341,10 @@ void ct_wait_server()
 	pthread_mutex_destroy(&mutex_count_undispatched);
 	pthread_mutex_destroy(&mutex_request_sent);
 
-	for (int i = 0; i < num_clients; i++)
+	for (int i = 0; i < num_clients; i++) {
 		free(cur_resources_per_client[i]);
+		free(max_resources_per_client[i]);
+	}
 }
 
 void ct_create_and_start(client_thread * ct)
@@ -343,6 +359,7 @@ void ct_init(client_thread * ct, int id)
 {
 	ct->id = id;
 	cur_resources_per_client[id] = calloc(num_resources, sizeof(int));
+	max_resources_per_client[id] = calloc(num_resources, sizeof(int));
 }
 
 void st_print_results(FILE * fd, bool verbose)

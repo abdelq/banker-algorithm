@@ -25,8 +25,9 @@ extern int num_resources;
 /* Quantité disponible pour chaque resource */
 extern int *provis_resources;
 
-/* Quantité de resources de chaque client */
+/* Quantité de resources courante/maximale de chaque client */
 extern int **cur_resources_per_client;
+extern int **max_resources_per_client;
 
 typedef struct client_thread {
 	unsigned int id;

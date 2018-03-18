@@ -17,6 +17,7 @@ int main(int argc, char *argv[])
 	num_resources = argc - 4;
 
 	cur_resources_per_client = malloc(num_clients * sizeof(int *));
+	max_resources_per_client = malloc(num_clients * sizeof(int *));
 	provis_resources = malloc(num_resources * sizeof(int));
 	for (int i = 0; i < num_resources; i++)
 		provis_resources[i] = atoi(argv[i + 4]);
@@ -35,6 +36,7 @@ int main(int argc, char *argv[])
 	}
 
 	free(cur_resources_per_client);
+	free(max_resources_per_client);
 	free(provis_resources);
 
 	// Affiche le journal
