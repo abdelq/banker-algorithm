@@ -3,8 +3,10 @@
 
 #include "client_thread.h"
 
-sockaddr_in server_addr = {.sin_family = AF_INET };
-enum server_ans { ACK, WAIT, ERR };
+//enum server_ans { ACK, WAIT, ERR };
+sockaddr_in server_addr = {
+	.sin_family = AF_INET
+};
 
 int num_clients;
 int num_request_per_client;
@@ -25,7 +27,7 @@ pthread_mutex_t mutex_count_on_wait = PTHREAD_MUTEX_INITIALIZER;
 unsigned int count_invalid = 0;
 pthread_mutex_t mutex_count_invalid = PTHREAD_MUTEX_INITIALIZER;
 
-// Nombre de clients qui se sont terminés correctement (ACK reçu en réponse à END)
+// Nombre de clients terminés correctement (ACK reçu en réponse à END)
 unsigned int count_dispatched = 0;
 pthread_mutex_t mutex_count_dispatched = PTHREAD_MUTEX_INITIALIZER;
 
@@ -37,6 +39,7 @@ pthread_mutex_t mutex_count_undispatched = PTHREAD_MUTEX_INITIALIZER;
 unsigned int request_sent = 0;
 pthread_mutex_t mutex_request_sent = PTHREAD_MUTEX_INITIALIZER;
 
+// TODO Look for a nicer solution
 int create_connected_socket()
 {
 	int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -53,9 +56,11 @@ int create_connected_socket()
 	return socket_fd;
 }
 
-int sendall(int socket, const void *buffer, size_t length)
+// TODO Use write instead
+// Sends to socket until all the message of a certain length in buffer is sent
+int sendall(int socket, char *buffer, size_t length)
 {
-	const char *buf = (char *)buffer;	// XXX const
+	char *buf = buffer;
 	ssize_t sent;
 
 	while (length > 0) {
@@ -69,23 +74,28 @@ int sendall(int socket, const void *buffer, size_t length)
 	return 0;
 }
 
-// TODO Function to process answer (ACK, ERR, WAIT)
-/*int recvall(int socket, void *buffer, size_t length, int flags)
+// TODO Use read instead
+// Receives from socket until a newline or EOF is encountered
+// Source: eg.bucknell.edu/~csci335/2006-fall/code/cServer/readln.cc
+int recvline(int socket, char *buffer, size_t length)
 {
-	char *buf = (char *)buffer;
+	char *buf = buffer, c;
 	ssize_t received;
 
-	while (length > 0) {
-		if ((received = recv(socket, buf, length, flags)) < 0)
+	while (buf - buffer < length) {
+		if ((received = recv(socket, buf, 1, 0)) < 0)
 			return -1;
-
-		buf += received;
-		length -= received;
+		if (*buf++ == '\n')
+			return buf - buffer;
 	}
 
-	return 0;
-}*/
+	// Flushing to newline or EOF
+	while (recv(socket, &c, 1, 0) > 0 && c != '\n') ;	// XXX
 
+	return buf - buffer;
+}
+
+// TODO Parse the string with sscanf for WAIT (time) and ERR (message)
 int send_beg()
 {
 	int socket_fd = create_connected_socket();
@@ -93,18 +103,28 @@ int send_beg()
 		return 0;
 
 	char send_buf[64], recv_buf[64];
-	int len =
-	    snprintf(send_buf, sizeof(send_buf), "BEG %d\n", num_resources);
+	int len = snprintf(send_buf, sizeof(send_buf),
+			   "BEG %d\n", num_resources);
 
-	if (sendall(socket_fd, send_buf, len) < 0) {
-		perror("ERROR on sending BEG");
+	do {
+		if (sendall(socket_fd, send_buf, len) < 0) {
+			perror("BEG: ERROR on sending");
+			goto close;
+		}
+		if (recvline(socket_fd, recv_buf, sizeof(recv_buf)) < 0) {
+			perror("BEG: ERROR on receiving");
+			goto close;
+		}
+	} while (strncmp(recv_buf, "WAIT", 4) == 0);
+
+	if (strncmp(recv_buf, "ACK", 3) == 0) {
 		close(socket_fd);
-		return 0;
+		return 1;
 	}
-	// TODO Manage reception
 
+ close:
 	close(socket_fd);
-	return 1;
+	return 0;
 }
 
 int send_pro()
@@ -241,7 +261,7 @@ void *ct_code(void *param)
 			pthread_mutex_lock(&mutex_count_accepted);
 			count_accepted++;
 			pthread_mutex_unlock(&mutex_count_accepted);
-		} else { // XXX On reception of ERR only?
+		} else {	// XXX On reception of ERR only?
 			pthread_mutex_lock(&mutex_count_invalid);
 			count_invalid++;
 			pthread_mutex_unlock(&mutex_count_invalid);
