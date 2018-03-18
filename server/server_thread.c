@@ -1,48 +1,49 @@
-#define _XOPEN_SOURCE 700
+#define _POSIX_C_SOURCE 200809L
 
-#include <netdb.h>
 #include <signal.h>
-#include <strings.h>
-#include <string.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <time.h>
-
-#include <netinet/in.h>
-#include <sys/types.h>
-#include <sys/socket.h>
+#include <unistd.h>
 
 #include "server_thread.h"
 
-/* Configuration constants */
-enum {
-	max_wait_time = 30,
-	server_backlog_size = 5
+sockaddr_in server_addr = {
+	.sin_family = AF_INET
 };
 
 int server_socket_fd;
+const int max_wait_time = 30;
+const int server_backlog_size = 5;
+
+int num_servers;
 
 // Nombre de clients enregistrés
 unsigned int nb_registered_clients = 0;
+//pthread_mutex_t mutex_nb_registered_clients = PTHREAD_MUTEX_INITIALIZER;
 
 /* Variables du journal */
 // Nombre de requêtes acceptées immédiatement (ACK envoyé en réponse à REQ)
 unsigned int count_accepted = 0;
+pthread_mutex_t mutex_count_accepted = PTHREAD_MUTEX_INITIALIZER;
 
 // Nombre de requêtes acceptées après un délai (ACK après REQ, mais retardé)
 unsigned int count_wait = 0;
+pthread_mutex_t mutex_count_wait = PTHREAD_MUTEX_INITIALIZER;
 
 // Nombre de requêtes erronées (ERR envoyé en réponse à REQ)
 unsigned int count_invalid = 0;
+pthread_mutex_t mutex_count_invalid = PTHREAD_MUTEX_INITIALIZER;
 
-// Nombre de clients qui se sont terminés correctement (ACK envoyé en réponse à CLO)
+// Nombre de clients terminés correctement (ACK envoyé en réponse à CLO)
 unsigned int count_dispatched = 0;
+pthread_mutex_t mutex_count_dispatched = PTHREAD_MUTEX_INITIALIZER;
 
 // Nombre total de requêtes (REQ) traités
 unsigned int request_processed = 0;
+pthread_mutex_t mutex_request_processed = PTHREAD_MUTEX_INITIALIZER;
 
 // Nombre de clients ayant envoyé le message CLO
 unsigned int clients_ended = 0;
+pthread_mutex_t mutex_clients_ended = PTHREAD_MUTEX_INITIALIZER;
 
 struct {
 	int *available;
@@ -62,18 +63,14 @@ void st_init()
 	// Handle interrupt
 	signal(SIGINT, &sigint_handler);
 
-	pthread_mutex_init(&banker.mutex, NULL);
-	// TODO
-
-	// Attend la connection d'un client et initialise les structures pour
-	// l'algorithme du banquier.
-
-	// END TODO
+	// TODO Attend la connection d'un client et initialise les structures pour
+	// l'algorithme du banquier
+	//pthread_mutex_init(&banker.mutex, NULL); // TODO Destroy
 }
 
+// FIXME
 void st_process_requests(server_thread * st, int socket_fd)
 {
-	// TODO: Remplacer le contenu de cette fonction
 	FILE *socket_r = fdopen(socket_fd, "r");
 	FILE *socket_w = fdopen(socket_fd, "w");
 
@@ -94,36 +91,28 @@ void st_process_requests(server_thread * st, int socket_fd)
 		       args);
 
 		fprintf(socket_w, "ERR Unknown command\n");
-		// XXX fflush(socket_w);
+		fflush(socket_w);
 		free(args);
 	}
 
 	fclose(socket_r);
 	fclose(socket_w);
-	// TODO end
-}
-
-void st_signal()
-{
-	pthread_mutex_destroy(&banker.mutex);	// XXX
-	// TODO Remplacer le contenu de cette fonction
 }
 
 int st_wait()
 {
-	struct sockaddr_in thread_addr;
-	socklen_t socket_len = sizeof(thread_addr);
-	int thread_socket_fd = -1;
-	int end_time = time(NULL) + max_wait_time;
+	sockaddr_in socket_addr;
+	socklen_t socket_len = sizeof(socket_addr);
 
+	int thread_socket_fd = -1, start_time = time(NULL);
 	while (thread_socket_fd < 0 && accepting_connections) {
 		thread_socket_fd = accept(server_socket_fd,
-					  (struct sockaddr *)&thread_addr,
+					  (sockaddr *) & socket_addr,
 					  &socket_len);
-		if (time(NULL) >= end_time) {
+		if (difftime(start_time, time(NULL)) > max_wait_time)
 			break;
-		}
 	}
+
 	return thread_socket_fd;
 }
 
@@ -131,14 +120,11 @@ void *st_code(void *param)
 {
 	server_thread *st = (server_thread *) param;
 
-	int thread_socket_fd = -1;
-
-	// Boucle de traitement des requêtes
+	int thread_socket_fd;
 	while (accepting_connections) {
-		// Wait for a I/O socket
-		thread_socket_fd = st_wait();
-		if (thread_socket_fd < 0) {
-			fprintf(stderr, "Time out on thread %d.\n", st->id);
+		// Attente d'un socket
+		if ((thread_socket_fd = st_wait()) < 0) {
+			fprintf(stderr, "Time out on thread %d\n", st->id);
 			continue;
 		}
 
@@ -147,37 +133,34 @@ void *st_code(void *param)
 			close(thread_socket_fd);
 		}
 	}
+
 	return NULL;
 }
 
 // Ouvre un socket pour le serveur
-void st_open_socket(int port_number)
+void st_open_socket()
 {
 	server_socket_fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
 	if (server_socket_fd < 0)
 		perror("ERROR creating socket");
 
-	if (setsockopt(server_socket_fd, SOL_SOCKET, SO_REUSEPORT, &(int) {
-		       1}, sizeof(int)) < 0) {
-		perror("setsockopt()");
+	int reuse = 1;
+	if (setsockopt
+	    (server_socket_fd, SOL_SOCKET, SO_REUSEPORT,
+	     &reuse, sizeof(reuse)) < 0) {
+		perror("setsockopt");
 		exit(1);
 	}
 
-	struct sockaddr_in serv_addr = {
-		.sin_addr = {INADDR_ANY},
-		.sin_port = htons(port_number),
-		.sin_family = AF_INET,
-	};
-
 	if (bind
-	    (server_socket_fd, (struct sockaddr *)&serv_addr,
-	     sizeof(serv_addr)) < 0)
+	    (server_socket_fd, (sockaddr *) & server_addr,
+	     sizeof(server_addr)) < 0)
 		perror("ERROR on binding");
 
-	listen(server_socket_fd, server_backlog_size);
+	if (listen(server_socket_fd, server_backlog_size) < 0)
+		perror("ERROR on listening");
 }
 
-// Affiche les données recueillies lors de l'exécution du serveur
 void st_print_results(FILE * fd, bool verbose)
 {
 	if (fd == NULL)

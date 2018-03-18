@@ -25,6 +25,7 @@ int main(int argc, char *argv[])
 	if (send_beg() && send_pro()) {
 		srand(time(NULL));
 
+		// Lance les fils d'exécution
 		client_thread client_threads[num_clients];
 		for (int i = 0; i < num_clients; i++)
 			ct_init(&(client_threads[i]), i);
