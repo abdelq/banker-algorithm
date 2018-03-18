@@ -43,19 +43,19 @@ void show_tables(){
     }
     printf("\n\n");
 
-    printf("Maximums:\n");
+    printf("Allocated:\n");
     for(int i=0;i<nprocs;i++){
         for(int j=0;j<nres;j++){
-            printf("%d ",max[i][j]);
+            printf("%d ",allocs[i][j]);
         }
         printf("\n");
     }
     printf("\n");
 
-    printf("Allocated:\n");
+    printf("Maximums:\n");
     for(int i=0;i<nprocs;i++){
         for(int j=0;j<nres;j++){
-            printf("%d ",allocs[i][j]);
+            printf("%d ",max[i][j]);
         }
         printf("\n");
     }
@@ -90,7 +90,7 @@ void get_claim(){
     }
 }
 
-int is_all_zeros(int a[]){
+int is_all_zeros(int* a){
     for(int i=0;i<(sizeof(a)/sizeof(int));i++){
         if(a[i] != 0){
             return 0;
@@ -112,6 +112,12 @@ int may_run(int p){
     return 1;
 }
 
+void release_by_pid(int p){
+    for(int i=0;i<nres;i++){
+        allocs[p][i] = 0;
+    }
+}
+
 // Actual check
 int ask_gringotts(){
     int is_safe = 0;
@@ -124,8 +130,11 @@ int ask_gringotts(){
             if(running[i]){
                 if(may_run(i)){
                     //process may run!
+                    printf("Process %d may run\n",i);
                     alloc_this_round++;
                     running[i] = 0;
+                    release_by_pid(i);
+                    show_tables();
                 }
             }
         }
