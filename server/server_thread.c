@@ -60,15 +60,26 @@ static void sigint_handler(int signum)
 
 void st_init()
 {
-	// Handle interrupt
+	// Ouvre un socket pour le serveur
+	st_open_socket();
+
+	// Gestion d'interruption
 	signal(SIGINT, &sigint_handler);
 
-	// TODO Attend la connection d'un client et initialise les structures pour
-	// l'algorithme du banquier
-	//pthread_mutex_init(&banker.mutex, NULL); // TODO Destroy
+	// TODO Attendre la connection d'un client
 }
 
-// FIXME
+void st_uninit()
+{
+	//pthread_mutex_destroy(&mutex_nb_registered_clients);
+	pthread_mutex_destroy(&mutex_count_accepted);
+	pthread_mutex_destroy(&mutex_count_wait);
+	pthread_mutex_destroy(&mutex_count_invalid);
+	pthread_mutex_destroy(&mutex_count_dispatched);
+	pthread_mutex_destroy(&mutex_request_processed);
+	pthread_mutex_destroy(&mutex_clients_ended);
+}
+
 void st_process_requests(server_thread * st, int socket_fd)
 {
 	FILE *socket_r = fdopen(socket_fd, "r");
@@ -106,9 +117,9 @@ int st_wait()
 
 	int thread_socket_fd = -1, start_time = time(NULL);
 	while (thread_socket_fd < 0 && accepting_connections) {
-		thread_socket_fd = accept(server_socket_fd,
-					  (sockaddr *) & socket_addr,
-					  &socket_len);
+		thread_socket_fd =
+		    accept(server_socket_fd, (sockaddr *) & socket_addr,
+			   &socket_len);
 		if (difftime(start_time, time(NULL)) > max_wait_time)
 			break;
 	}
@@ -137,16 +148,17 @@ void *st_code(void *param)
 	return NULL;
 }
 
-// Ouvre un socket pour le serveur
 void st_open_socket()
 {
 	server_socket_fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
-	if (server_socket_fd < 0)
+	if (server_socket_fd < 0) {
 		perror("ERROR creating socket");
+		exit(1);
+	}
 
 	int reuse = 1;
 	if (setsockopt
-	    (server_socket_fd, SOL_SOCKET, SO_REUSEPORT,
+	    (server_socket_fd, SOL_SOCKET, SO_REUSEADDR,
 	     &reuse, sizeof(reuse)) < 0) {
 		perror("setsockopt");
 		exit(1);

@@ -27,6 +27,7 @@ typedef struct server_thread {
 
 void st_open_socket(void);
 void st_init(void);
+void st_uninit(void);
 void st_process_request(server_thread *, int);
 void *st_code(void *);
 
