@@ -117,11 +117,11 @@ char *recv_beg(char *args)
 		return "ERR number of resources\n";
 
 	pthread_mutex_lock(&banker.mutex);
-	if (banker.allocation != NULL) {
+	if (banker.available != NULL) {
 		pthread_mutex_unlock(&banker.mutex);
 		return "ERR already sent\n";
 	}
-	banker.allocation = malloc(num_resources * sizeof(int));
+	banker.available = malloc(num_resources * sizeof(int));
 	pthread_mutex_unlock(&banker.mutex);
 
 	return "ACK\n";
