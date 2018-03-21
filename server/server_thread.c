@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include <signal.h>
+#include <string.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -18,7 +19,7 @@ int num_servers;
 
 // Nombre de clients enregistrés
 unsigned int nb_registered_clients = 0;
-//pthread_mutex_t mutex_nb_registered_clients = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex_nb_registered_clients = PTHREAD_MUTEX_INITIALIZER;
 
 /* Variables du journal */
 // Nombre de requêtes acceptées immédiatement (ACK envoyé en réponse à REQ)
@@ -58,6 +59,7 @@ static void sigint_handler(int signum)
 	accepting_connections = false;
 }
 
+// TODO
 void st_init()
 {
 	// Ouvre un socket pour le serveur
@@ -65,13 +67,12 @@ void st_init()
 
 	// Gestion d'interruption
 	signal(SIGINT, &sigint_handler);
-
-	// TODO Attendre la connection d'un client
 }
 
+// TODO
 void st_uninit()
 {
-	//pthread_mutex_destroy(&mutex_nb_registered_clients);
+	pthread_mutex_destroy(&mutex_nb_registered_clients);
 	pthread_mutex_destroy(&mutex_count_accepted);
 	pthread_mutex_destroy(&mutex_count_wait);
 	pthread_mutex_destroy(&mutex_count_invalid);
@@ -80,28 +81,56 @@ void st_uninit()
 	pthread_mutex_destroy(&mutex_clients_ended);
 }
 
+// TODO
+char *recv_ini()
+{
+	return "ACK\n";
+}
+
+// TODO
+char *recv_req()
+{
+	return "ACK\n";
+}
+
+// TODO
+char *recv_clo()
+{
+	return "ACK\n";
+}
+
 void st_process_requests(server_thread * st, int socket_fd)
 {
 	FILE *socket_r = fdopen(socket_fd, "r");
 	FILE *socket_w = fdopen(socket_fd, "w");
 
 	while (true) {
-		char cmd[4] = { '\0', '\0', '\0', '\0' };
+		char cmd[4] = "";	// XXX
 		if (!fread(cmd, 3, 1, socket_r))
 			break;
+
 		char *args = NULL;
 		size_t args_len = 0;
-		ssize_t cnt = getline(&args, &args_len, socket_r);
-		if (!args || cnt < 1 || args[cnt - 1] != '\n') {
-			printf("Thread %d received incomplete cmd=%s!\n",
-			       st->id, cmd);
+		ssize_t count = getline(&args, &args_len, socket_r);
+		if (!args || count < 1 || args[count - 1] != '\n') {	// XXX count-1
+			fprintf(stderr,
+				"Thread %d received incomplete command: %s\n",
+				st->id, cmd);
 			break;
 		}
 
-		printf("Thread %d received the command: %s%s", st->id, cmd,
-		       args);
+		printf("Thread %d received command: %s%s", st->id, cmd, args);
+		char *answer = "ERR unknown command\n";
+		if (strcmp(cmd, "INI") == 0) {
+			answer = recv_ini();
+		} else if (strcmp(cmd, "REQ") == 0) {
+			answer = recv_req();
+		} else if (strcmp(cmd, "CLO") == 0) {
+			answer = recv_clo();
+		}
+		// TODO BEG PRO END
 
-		fprintf(socket_w, "ERR Unknown command\n");
+		fprintf(socket_w, answer);
 		fflush(socket_w);
 		free(args);
 	}
@@ -117,9 +146,9 @@ int st_wait()
 
 	int thread_socket_fd = -1, start_time = time(NULL);
 	while (thread_socket_fd < 0 && accepting_connections) {
-		thread_socket_fd =
-		    accept(server_socket_fd, (sockaddr *) & socket_addr,
-			   &socket_len);
+		thread_socket_fd = accept(server_socket_fd,
+					  (sockaddr *) & socket_addr,
+					  &socket_len);
 		if (difftime(start_time, time(NULL)) > max_wait_time)
 			break;
 	}
