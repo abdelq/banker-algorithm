@@ -78,8 +78,8 @@ void st_init()
 void freemat(int **matrix)
 {
 	if (matrix != NULL) {
-		int size = sizeof(matrix);
-		for (int i = 0; i < size; i++)
+		int len = sizeof(matrix) / sizeof(int *);
+		for (int i = 0; i < len; i++)
 			free(matrix[i]);
 		free(matrix);
 	}
@@ -88,12 +88,10 @@ void freemat(int **matrix)
 void st_uninit()
 {
 	// Structure du banquier
-	//pthread_mutex_lock(&banker.mutex);
 	free(banker.available);
 	freemat(banker.max);
 	freemat(banker.allocation);
 	freemat(banker.need);
-	//pthread_mutex_unlock(&banker.mutex);
 	pthread_mutex_destroy(&banker.mutex);
 
 	pthread_mutex_destroy(&mutex_nb_registered_clients);
@@ -110,48 +108,141 @@ void st_uninit()
 
 char *recv_beg(char *args)
 {
-	int num_resources;
-	if (sscanf(args, " %d\n", &num_resources) != 1)
-		return "ERR invalid arguments\n";
-	if (num_resources <= 0)
-		return "ERR number of resources\n";
-
 	pthread_mutex_lock(&banker.mutex);
+	// Verify that BEG has not been called already
 	if (banker.available != NULL) {
 		pthread_mutex_unlock(&banker.mutex);
 		return "ERR already sent\n";
 	}
-	banker.available = malloc(num_resources * sizeof(int));
+	pthread_mutex_unlock(&banker.mutex);
+
+	int num_resources;
+	if (sscanf(args, " %d\n", &num_resources) != 1)
+		return "ERR invalid arguments\n";
+	if (num_resources <= 0)
+		return "ERR invalid resource number\n";	// XXX
+
+	pthread_mutex_lock(&banker.mutex);
+	banker.available = calloc(num_resources, sizeof(int));
+	pthread_mutex_unlock(&banker.mutex);
+	return "ACK\n";
+}
+
+bool is_empty(int *arr)
+{
+	int len = sizeof(arr) / sizeof(int);
+	for (int i = 0; i < len; i++)
+		if (arr[i] != 0)
+			return false;
+	return true;
+}
+
+char *recv_pro(char *args)
+{
+	pthread_mutex_lock(&banker.mutex);
+	// Verify that PRO has not been called before BEG
+	if (banker.available == NULL) {
+		pthread_mutex_unlock(&banker.mutex);
+		return "ERR PRO before BEG\n";
+	}
+	// Verify that PRO has not been called already
+	if (!is_empty(banker.available)) {
+		pthread_mutex_unlock(&banker.mutex);
+		return "ERR already sent\n";
+	}
+
+	/* Parse received data */
+	int next = 0;
+	int i, len = sizeof(banker.available) / sizeof(int);
+	for (i = 0; i < len; i++) {
+		if (sscanf(args + next, " %d%n", &banker.available[i], &next) !=
+		    1) {
+			memset(banker.available, 0, i * sizeof(int));	// XXX
+			pthread_mutex_unlock(&banker.mutex);
+			return "ERR invalid arguments\n";	// XXX Less than needed
+		}
+		if (banker.available[i] < 0) {
+			memset(banker.available, 0, i * sizeof(int));	// XXX
+			pthread_mutex_unlock(&banker.mutex);
+			return "ERR negative value\n";	// XXX
+		}
+	}
+	if (sscanf(args + i, " %d%n", NULL, NULL) == 1) {	// XXX
+		memset(banker.available, 0, i * sizeof(int));	// XXX
+		pthread_mutex_unlock(&banker.mutex);
+		return "ERR invalid arguments\n";	// XXX More than needed
+	}
+
+	if (is_empty(banker.available)) {
+		pthread_mutex_unlock(&banker.mutex);
+		return "ERR All set to 0\n";	// XXX
+	}
 	pthread_mutex_unlock(&banker.mutex);
 
 	return "ACK\n";
 }
 
-// TODO
-char *recv_pro(char *args)
-{
-	return "ACK\n";
-}
-
-// TODO
+// TODO Allow arguments?
+// TODO Already sent? Command right b4 or after END? (multithreading)?
 char *recv_end(char *args)
 {
+	pthread_mutex_lock(&mutex_nb_registered_clients);
+	pthread_mutex_lock(&mutex_count_dispatched);
+	if (count_dispatched != nb_registered_clients) {
+		pthread_mutex_unlock(&mutex_nb_registered_clients);
+		pthread_mutex_unlock(&mutex_count_dispatched);
+		return "ERR CLIENTS NOT ALL ENDED\n";	// XXX
+	}
+	pthread_mutex_unlock(&mutex_nb_registered_clients);
+	pthread_mutex_unlock(&mutex_count_dispatched);
+
 	return "ACK\n";
 }
 
-// TODO
+// FIXME For max, allocation, need table as struct with IDs?
 char *recv_ini(char *args)
 {
+	pthread_mutex_lock(&banker.mutex);
+	if (is_empty(banker.available)) {
+		pthread_mutex_unlock(&banker.mutex);
+		return "ERR INI before PRO\n";
+	}
+	//nb_registered_clients
+	int num_client;		// XXX
+
+	int next = 0;
+	int i, len = sizeof(banker.available) / sizeof(int);	// len = nb ressources
+	if (sscanf(args, " %d%n", &num_client, &next) != 1) {
+		pthread_mutex_unlock(&banker.mutex);
+		return "ERR invalid arguments\n";	// XXX
+	}
+	// TODO Already sent for num_client
+
+	// XXX Need reallocation for ptr
+	/*for (i = 0; i < len; i++) {
+	   if (sscanf(args + next, " %d%n", &banker.available[i], &next) != 1) {
+	   memset(banker.available, 0, i*sizeof(int)); // XXX
+	   pthread_mutex_unlock(&banker.mutex);
+	   return "ERR invalid arguments\n";        // XXX Less than needed
+	   }
+	   if (banker.available[i] < 0) {
+	   pthread_mutex_unlock(&banker.mutex);
+	   return "ERR negative value\n";   // XXX
+	   }
+	   } */
+
+	pthread_mutex_unlock(&banker.mutex);
+
 	return "ACK\n";
 }
 
-// TODO
+// FIXME Already sent
 char *recv_req(char *args)
 {
 	return "ACK\n";
 }
 
-// TODO
+// FIXME Already sent + Should not close already closed client
 char *recv_clo(char *args)
 {
 	return "ACK\n";
@@ -159,10 +250,12 @@ char *recv_clo(char *args)
 
 void st_process_requests(server_thread * st, int socket_fd)
 {
+	// TODO Use a read/write file instead of two separate?
 	FILE *socket_r = fdopen(socket_fd, "r");
 	FILE *socket_w = fdopen(socket_fd, "w");
 
-	while (true) {
+	bool done = false;	// XXX
+	while (!done) {
 		char cmd[4] = "";	// XXX
 		if (!fread(cmd, 3, 1, socket_r))
 			break;
@@ -188,6 +281,8 @@ void st_process_requests(server_thread * st, int socket_fd)
 			answer = recv_pro(args);
 		} else if (strcmp(cmd, "END") == 0) {
 			answer = recv_end(args);
+			if (strncmp(answer, "ACK", 3))
+				done = true;
 		} else if (strcmp(cmd, "INI") == 0) {
 			answer = recv_ini(args);
 		} else if (strcmp(cmd, "REQ") == 0) {
