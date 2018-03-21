@@ -11,7 +11,7 @@ sockaddr_in server_addr = {
 	.sin_family = AF_INET
 };
 
-int server_socket_fd;
+int server_socket_fd = -1;
 const int max_wait_time = 30;
 const int server_backlog_size = 5;
 
@@ -59,7 +59,6 @@ static void sigint_handler(int signum)
 	accepting_connections = false;
 }
 
-// TODO
 void st_init()
 {
 	// Ouvre un socket pour le serveur
@@ -67,11 +66,34 @@ void st_init()
 
 	// Gestion d'interruption
 	signal(SIGINT, &sigint_handler);
+
+	// Structure du banquier
+	banker.available = NULL;
+	banker.max = NULL;
+	banker.allocation = NULL;
+	banker.need = NULL;
+	pthread_mutex_init(&banker.mutex, NULL);
 }
 
-// TODO
+void freemat(int **matrix)
+{
+	if (matrix != NULL) {
+		int size = sizeof(matrix);
+		for (int i = 0; i < size; i++)
+			free(matrix[i]);
+		free(matrix);
+	}
+}
+
 void st_uninit()
 {
+	// Structure du banquier
+	free(banker.available);
+	freemat(banker.max);
+	freemat(banker.allocation);
+	freemat(banker.need);
+	pthread_mutex_destroy(&banker.mutex);
+
 	pthread_mutex_destroy(&mutex_nb_registered_clients);
 	pthread_mutex_destroy(&mutex_count_accepted);
 	pthread_mutex_destroy(&mutex_count_wait);
@@ -79,6 +101,27 @@ void st_uninit()
 	pthread_mutex_destroy(&mutex_count_dispatched);
 	pthread_mutex_destroy(&mutex_request_processed);
 	pthread_mutex_destroy(&mutex_clients_ended);
+
+	if (server_socket_fd > -1)
+		close(server_socket_fd);
+}
+
+// TODO num_resources must be > 0
+char *recv_beg()
+{
+	return "ACK\n";
+}
+
+// TODO
+char *recv_pro()
+{
+	return "ACK\n";
+}
+
+// TODO
+char *recv_end()
+{
+	return "ACK\n";
 }
 
 // TODO
@@ -117,18 +160,26 @@ void st_process_requests(server_thread * st, int socket_fd)
 				"Thread %d received incomplete command: %s\n",
 				st->id, cmd);
 			break;
+		} else {
+			fprintf(stdout,
+				"Thread %d received command: %s%s",
+				st->id, cmd, args);
 		}
 
-		printf("Thread %d received command: %s%s", st->id, cmd, args);
 		char *answer = "ERR unknown command\n";
-		if (strcmp(cmd, "INI") == 0) {
+		if (strcmp(cmd, "BEG") == 0) {
+			answer = recv_beg();
+		} else if (strcmp(cmd, "PRO") == 0) {
+			answer = recv_pro();
+		} else if (strcmp(cmd, "END") == 0) {
+			answer = recv_end();
+		} else if (strcmp(cmd, "INI") == 0) {
 			answer = recv_ini();
 		} else if (strcmp(cmd, "REQ") == 0) {
 			answer = recv_req();
 		} else if (strcmp(cmd, "CLO") == 0) {
 			answer = recv_clo();
 		}
-		// TODO BEG PRO END
 
 		fprintf(socket_w, answer);
 		fflush(socket_w);
