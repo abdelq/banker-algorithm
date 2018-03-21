@@ -12,8 +12,8 @@ sockaddr_in server_addr = {
 };
 
 int server_socket_fd = -1;
-const int max_wait_time = 30;
-const int server_backlog_size = 5;
+int max_wait_time = 30;
+int server_backlog_size = 5;
 
 int num_servers;
 
@@ -88,10 +88,12 @@ void freemat(int **matrix)
 void st_uninit()
 {
 	// Structure du banquier
+	//pthread_mutex_lock(&banker.mutex);
 	free(banker.available);
 	freemat(banker.max);
 	freemat(banker.allocation);
 	freemat(banker.need);
+	//pthread_mutex_unlock(&banker.mutex);
 	pthread_mutex_destroy(&banker.mutex);
 
 	pthread_mutex_destroy(&mutex_nb_registered_clients);
@@ -106,38 +108,51 @@ void st_uninit()
 		close(server_socket_fd);
 }
 
-// TODO num_resources must be > 0
-char *recv_beg()
+char *recv_beg(char *args)
+{
+	int num_resources;
+	if (sscanf(args, " %d\n", &num_resources) != 1)
+		return "ERR invalid arguments\n";
+	if (num_resources <= 0)
+		return "ERR number of resources\n";
+
+	pthread_mutex_lock(&banker.mutex);
+	if (banker.allocation != NULL) {
+		pthread_mutex_unlock(&banker.mutex);
+		return "ERR already sent\n";
+	}
+	banker.allocation = malloc(num_resources * sizeof(int));
+	pthread_mutex_unlock(&banker.mutex);
+
+	return "ACK\n";
+}
+
+// TODO
+char *recv_pro(char *args)
 {
 	return "ACK\n";
 }
 
 // TODO
-char *recv_pro()
+char *recv_end(char *args)
 {
 	return "ACK\n";
 }
 
 // TODO
-char *recv_end()
+char *recv_ini(char *args)
 {
 	return "ACK\n";
 }
 
 // TODO
-char *recv_ini()
+char *recv_req(char *args)
 {
 	return "ACK\n";
 }
 
 // TODO
-char *recv_req()
-{
-	return "ACK\n";
-}
-
-// TODO
-char *recv_clo()
+char *recv_clo(char *args)
 {
 	return "ACK\n";
 }
@@ -155,7 +170,7 @@ void st_process_requests(server_thread * st, int socket_fd)
 		char *args = NULL;
 		size_t args_len = 0;
 		ssize_t count = getline(&args, &args_len, socket_r);
-		if (!args || count < 1 || args[count - 1] != '\n') {	// XXX count-1
+		if (!args || count < 1 || args[count - 1] != '\n') {
 			fprintf(stderr,
 				"Thread %d received incomplete command: %s\n",
 				st->id, cmd);
@@ -168,17 +183,17 @@ void st_process_requests(server_thread * st, int socket_fd)
 
 		char *answer = "ERR unknown command\n";
 		if (strcmp(cmd, "BEG") == 0) {
-			answer = recv_beg();
+			answer = recv_beg(args);
 		} else if (strcmp(cmd, "PRO") == 0) {
-			answer = recv_pro();
+			answer = recv_pro(args);
 		} else if (strcmp(cmd, "END") == 0) {
-			answer = recv_end();
+			answer = recv_end(args);
 		} else if (strcmp(cmd, "INI") == 0) {
-			answer = recv_ini();
+			answer = recv_ini(args);
 		} else if (strcmp(cmd, "REQ") == 0) {
-			answer = recv_req();
+			answer = recv_req(args);
 		} else if (strcmp(cmd, "CLO") == 0) {
-			answer = recv_clo();
+			answer = recv_clo(args);
 		}
 
 		fprintf(socket_w, answer);
