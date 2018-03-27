@@ -4,7 +4,10 @@ BUILD_DIR=build
 TIMEOUT=10
 VALGRIND=valgrind --leak-check=yes --error-exitcode=1
 CC=gcc
-CFLAGS=-g -std=c99 -Wall -pedantic -D_REENTRENT=1
+CFLAGS=-g -std=gnu99 -Wall -pedantic -D_REENTRENT=1
+ifdef BEG_PRO_ATOMIC
+CFLAGS += -DBEG_PRO_ATOMIC
+endif
 LDFLAGS=-pthread
 
 CLT_O = main.o client_thread.o
@@ -13,7 +16,7 @@ SRV_O = main.o server_thread.o
 .PHONY: default all clean format client server test \
 	run \
 	run-client run-server \
-	run-client-valgrind run-server-valgrind
+	run-valgrind-client run-valgrind-server
 
 default: all
 
@@ -37,7 +40,7 @@ $(BUILD_DIR)/%.o: %.c
 # à gérer avec quantités respectivement 10, 4, 23, 1, et 2.
 run: all
 	$(BUILD_DIR)/tp2_server 2018 3 & 		  \
-	$(BUILD_DIR)/tp2_client 2018 5 50   10 4 23 1 2 & \
+	$(BUILD_DIR)/tp2_client 2018 1 50   10 4 23 1 2 & \
 	wait
 
 run-server: all
@@ -46,10 +49,11 @@ run-server: all
 run-client: all
 	@$(BUILD_DIR)/tp2_client 2018 5 50   10 4 23 1 2
 
-run-server-valgrind: all
-	$(VALGRIND) $(BUILD_DIR)/tp2_server 2018
+# Mis à un thread pour déboguer.
+run-valgrind-server: all
+	$(VALGRIND) $(BUILD_DIR)/tp2_server 2018 1
 
-run-client-valgrind: all
+run-valgrind-client: all
 	$(VALGRIND) $(BUILD_DIR)/tp2_client 2018 5 50   10 4 23 1 2
 
 indent:
