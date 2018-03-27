@@ -106,7 +106,7 @@ int send_cmd(int socket, char *send_buf, char *recv_buf)
 		if (sendall(socket, send_buf, strlen(send_buf)) < 0)
 			return -1;
 		// Receive
-		memset(recv_buf, '\0', strlen(recv_buf));
+		memset(recv_buf, '\0', strlen(recv_buf));	// XXX
 		if (recvline(socket, recv_buf, sizeof(recv_buf)) < 0)
 			return -1;
 	} while (sscanf(recv_buf, "WAIT %d\n", &wait_dur) == 1 && ++wait_num);

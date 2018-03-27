@@ -26,7 +26,6 @@ int main(int argc, char *argv[])
 			       &st_code, &(st[i]));
 		pthread_attr_destroy(&(st[i].pt_attr));
 	}
-
 	for (int i = 0; i < num_servers; i++)
 		pthread_join(st[i].pt_tid, NULL);
 
