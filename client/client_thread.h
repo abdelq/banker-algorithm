@@ -31,17 +31,17 @@ extern int **max_resources_per_client;
 
 typedef struct client_thread {
 	unsigned int id;
-	pthread_t pt_tid;
+	pthread_t pt_id;
 	pthread_attr_t pt_attr;
 } client_thread;
 
 void ct_init(client_thread *, int);
 void ct_create_and_start(client_thread *);
-void ct_wait_server();
+void ct_wait_server(void);
 
-int send_beg();
-int send_pro();
-int send_end();
+int send_beg(void);
+int send_pro(void);
+int send_end(void);
 
 void st_print_results(FILE *, bool);
 

@@ -5,6 +5,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <sys/queue.h>
+
 #include "server_thread.h"
 
 sockaddr_in server_addr = {
@@ -16,6 +18,7 @@ int max_wait_time = 30;
 int server_backlog_size = 5;
 
 int num_servers;
+int num_resources;
 
 // Nombre de clients enregistrés
 unsigned int nb_registered_clients = 0;
@@ -78,8 +81,7 @@ void st_init()
 void freemat(int **matrix)
 {
 	if (matrix != NULL) {
-		int len = sizeof(matrix) / sizeof(int *);
-		for (int i = 0; i < len; i++)
+		for (int i = 0; i < nb_registered_clients; i++)
 			free(matrix[i]);
 		free(matrix);
 	}
@@ -116,11 +118,10 @@ char *recv_beg(char *args)
 	}
 	pthread_mutex_unlock(&banker.mutex);
 
-	int num_resources;
 	if (sscanf(args, " %d\n", &num_resources) != 1)
 		return "ERR invalid arguments\n";
 	if (num_resources <= 0)
-		return "ERR invalid resource number\n";	// XXX
+		return "ERR invalid values\n";
 
 	pthread_mutex_lock(&banker.mutex);
 	banker.avail = calloc(num_resources, sizeof(int));
@@ -130,8 +131,7 @@ char *recv_beg(char *args)
 
 bool is_empty(int *arr)
 {
-	int len = sizeof(arr) / sizeof(int);
-	for (int i = 0; i < len; i++)
+	for (int i = 0; i < num_resources; i++)
 		if (arr[i] != 0)
 			return false;
 	return true;
@@ -152,111 +152,107 @@ char *recv_pro(char *args)
 	}
 
 	/* Parse received data */
-	int next = 0;
-	int i, len = sizeof(banker.avail) / sizeof(int);
-	for (i = 0; i < len; i++) {
-		if (sscanf(args + next, " %d%n", &banker.avail[i], &next) != 1) {
-			memset(banker.avail, 0, i * sizeof(int));	// XXX
+	char *next = args;
+	int i, j = 0;
+	for (i = 0; i < num_resources; i++) {
+		if (sscanf(next, " %d%n", &banker.avail[i], &j) != 1) {
+			memset(banker.avail, 0, ++i * sizeof(int));
 			pthread_mutex_unlock(&banker.mutex);
-			return "ERR invalid arguments\n";	// XXX Less than needed
+			return "ERR invalid argument length\n";
 		}
 		if (banker.avail[i] < 0) {
-			memset(banker.avail, 0, i * sizeof(int));	// XXX
+			memset(banker.avail, 0, ++i * sizeof(int));
 			pthread_mutex_unlock(&banker.mutex);
-			return "ERR negative value\n";	// XXX
+			return "ERR invalid values\n";
 		}
+		next += j;
 	}
-	if (sscanf(args + i, " %d%n", NULL, NULL) == 1) {	// XXX
-		memset(banker.avail, 0, i * sizeof(int));	// XXX
+	if (sscanf(next, " %d%n", &j, &j) == 1) {
+		memset(banker.avail, 0, ++i * sizeof(int));
 		pthread_mutex_unlock(&banker.mutex);
-		return "ERR invalid arguments\n";	// XXX More than needed
+		return "ERR invalid argument length\n";
 	}
 
 	if (is_empty(banker.avail)) {
 		pthread_mutex_unlock(&banker.mutex);
-		return "ERR All set to 0\n";	// XXX
+		return "ERR invalid values\n";
 	}
-	pthread_mutex_unlock(&banker.mutex);
 
+	pthread_mutex_unlock(&banker.mutex);
 	return "ACK\n";
 }
 
-// TODO Allow arguments?
-// TODO Already sent? Command right b4 or after END? (multithreading)?
 char *recv_end(char *args)
 {
+	// No arguments allowed
+	if (strncmp(args, "\n", 1) != 0)
+		return "ERR invalid argument length\n";
+
 	pthread_mutex_lock(&mutex_nb_registered_clients);
 	pthread_mutex_lock(&mutex_count_dispatched);
-	if (count_dispatched != nb_registered_clients) {
+	if (count_dispatched < nb_registered_clients) {
 		pthread_mutex_unlock(&mutex_nb_registered_clients);
 		pthread_mutex_unlock(&mutex_count_dispatched);
-		return "ERR CLIENTS NOT ALL ENDED\n";	// XXX
+		return "ERR clients not dispatched yet\n";
 	}
+
 	pthread_mutex_unlock(&mutex_nb_registered_clients);
 	pthread_mutex_unlock(&mutex_count_dispatched);
-
 	return "ACK\n";
 }
 
-// FIXME For max, alloc, need table as struct with IDs?
+// FIXME
 char *recv_ini(char *args)
 {
-	pthread_mutex_lock(&banker.mutex);
-	if (is_empty(banker.avail)) {
-		pthread_mutex_unlock(&banker.mutex);
-		return "ERR INI before PRO\n";
-	}
-
-	int num_client;		// XXX
-
-	int next = 0;
-	int i, len = sizeof(banker.avail) / sizeof(int);	// len = nb ressources
-	if (sscanf(args, " %d%n", &num_client, &next) != 1) {
-		pthread_mutex_unlock(&banker.mutex);
-		return "ERR invalid arguments\n";	// XXX
-	}
-	// TODO Already sent for num_client
-
-	// XXX Need realloc for ptr
-	/*for (i = 0; i < len; i++) {
-	   if (sscanf(args + next, " %d%n", &banker.avail[i], &next) != 1) {
-	   memset(banker.avail, 0, i*sizeof(int)); // XXX
+	/*pthread_mutex_lock(&banker.mutex);
+	   if (is_empty(banker.avail)) {
 	   pthread_mutex_unlock(&banker.mutex);
-	   return "ERR invalid arguments\n";        // XXX Less than needed
+	   return "ERR INI before PRO\n";
 	   }
-	   if (banker.avail[i] < 0) {
-	   pthread_mutex_unlock(&banker.mutex);
-	   return "ERR negative value\n";   // XXX
-	   }
-	   } */
-	//nb_registered_clients
+	   // TODO Should have strucs w/ IDs, to manage random IDs
 
-	pthread_mutex_unlock(&banker.mutex);
+	   int num_client;              // XXX
+
+	   int next = 0;
+	   int i, len = sizeof(banker.avail) / sizeof(int);     // len = nb ressources
+	   if (sscanf(args, " %d%n", &num_client, &next) != 1) {
+	   pthread_mutex_unlock(&banker.mutex);
+	   return "ERR invalid arguments\n";    // XXX
+	   }
+	   // TODO Already sent for num_client
+	   pthread_mutex_unlock(&banker.mutex); */
 
 	return "ACK\n";
 }
 
-// FIXME Already sent
+// FIXME
 char *recv_req(char *args)
 {
 	return "ACK\n";
 }
 
-// FIXME Already sent + Should not close already closed client
+// FIXME
 char *recv_clo(char *args)
 {
+	/*int num_client;
+	   if (sscanf(args, " %d\n", &num_client) != 1)
+	   return "ERR invalid arguments\n";
+	   if (num_client <= 0) // FIXME Should look in all structs for ID
+	   return "ERR invalid client\n";       // XXX */
+	// Already sent + Should not close already closed client
+	// All resources freed before calling CLO
+
 	return "ACK\n";
 }
 
 void st_process_requests(server_thread * st, int socket_fd)
 {
-	// TODO Use a read/write file instead of two separate?
+	// TODO Use a read/write file instead of two separate
 	FILE *socket_r = fdopen(socket_fd, "r");
 	FILE *socket_w = fdopen(socket_fd, "w");
 
-	bool ended = false;	// XXX
-	while (!ended) {
-		char cmd[4] = "";	// XXX
+	while (accepting_connections) {
+		char cmd[4] = "";
 		if (!fread(cmd, 3, 1, socket_r))
 			break;
 
@@ -281,8 +277,8 @@ void st_process_requests(server_thread * st, int socket_fd)
 			answer = recv_pro(args);
 		} else if (strcmp(cmd, "END") == 0) {
 			answer = recv_end(args);
-			if (strncmp(answer, "ACK", 3))
-				ended = true;
+			if (strncmp(answer, "ACK", 3) == 0)
+				accepting_connections = false;	// XXX
 		} else if (strcmp(cmd, "INI") == 0) {
 			answer = recv_ini(args);
 		} else if (strcmp(cmd, "REQ") == 0) {

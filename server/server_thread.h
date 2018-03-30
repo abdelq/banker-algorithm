@@ -21,7 +21,7 @@ extern int num_servers;
 
 typedef struct server_thread {
 	unsigned int id;
-	pthread_t pt_tid;
+	pthread_t pt_id;
 	pthread_attr_t pt_attr;
 } server_thread;
 
