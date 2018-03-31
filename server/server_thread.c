@@ -233,7 +233,7 @@ char *recv_ini(char *args)
 	if (sscanf(args, " %d%n", &num_client, &j) != 1)
 		return "ERR invalid argument length\n";
 	if (num_client < 0)
-		return "ERR invalid client number";
+		return "ERR invalid client number\n";
 
 	/* Verify that client doesn't already exist */
 	pthread_mutex_lock(&banker.mutex);
@@ -289,11 +289,51 @@ char *recv_ini(char *args)
 	return "ACK\n";
 }
 
-// FIXME Wait w/ random value for time being Look for item in matrix
-// Verify for closed
 char *recv_req(char *args)
 {
-	return "ACK\n";
+	pthread_mutex_lock(&mutex_request_processed);
+	request_processed++;
+	pthread_mutex_unlock(&mutex_request_processed);
+
+	int num_client /*, i */ , j;
+	if (sscanf(args, " %d%n", &num_client, &j) != 1) {
+		pthread_mutex_lock(&mutex_count_invalid);
+		count_invalid++;
+		pthread_mutex_unlock(&mutex_count_invalid);
+		return "ERR invalid argument length\n";
+	}
+	if (num_client < 0) {
+		pthread_mutex_lock(&mutex_count_invalid);
+		count_invalid++;
+		pthread_mutex_unlock(&mutex_count_invalid);
+		return "ERR invalid client number\n";
+	}
+
+	client *c;
+	pthread_mutex_lock(&banker.mutex);
+	if (!(c = find_client(num_client))) {
+		pthread_mutex_unlock(&banker.mutex);
+		pthread_mutex_lock(&mutex_count_invalid);
+		count_invalid++;
+		pthread_mutex_unlock(&mutex_count_invalid);
+		return "ERR REQ before INI\n";
+	}
+	if (c->closed) {
+		pthread_mutex_unlock(&banker.mutex);
+		pthread_mutex_lock(&mutex_count_invalid);
+		count_invalid++;
+		pthread_mutex_unlock(&mutex_count_invalid);
+		return "ERR REQ after CLO\n";
+	}
+
+	/* Algorithme du banquier */
+	// FIXME Algo banquier here
+	pthread_mutex_unlock(&banker.mutex);
+
+	// FIXME Counters
+	// FIXME Wait w/ random value for time being
+
+	return "ACK\n";		// FIXME
 }
 
 char *recv_clo(char *args)
@@ -302,13 +342,13 @@ char *recv_clo(char *args)
 	if (sscanf(args, " %d\n", &num_client) != 1)
 		return "ERR invalid arguments\n";
 	if (num_client < 0)
-		return "ERR invalid client number";
+		return "ERR invalid client number\n";
 
 	client *c;
 	pthread_mutex_lock(&banker.mutex);
-	if ((c = find_client(num_client)) == NULL) {
+	if (!(c = find_client(num_client))) {
 		pthread_mutex_unlock(&banker.mutex);
-		return "ERR invalid client number";
+		return "ERR CLO before INI\n";
 	}
 
 	pthread_mutex_lock(&mutex_clients_ended);
@@ -317,7 +357,7 @@ char *recv_clo(char *args)
 
 	if (!is_empty(c->alloc)) {
 		pthread_mutex_unlock(&banker.mutex);
-		return "ERR resources not freed";
+		return "ERR resources not freed\n";
 	}
 	c->closed = true;
 	pthread_mutex_unlock(&banker.mutex);
