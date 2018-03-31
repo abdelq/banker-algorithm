@@ -14,7 +14,6 @@ int main(int argc, char *argv[])
 
 	num_servers = atoi(argv[2]);
 
-	st_open_socket();
 	st_init();
 
 	// Lance les fils d'exécution
@@ -22,12 +21,15 @@ int main(int argc, char *argv[])
 	for (int i = 0; i < num_servers; i++) {
 		st[i].id = i;
 		pthread_attr_init(&(st[i].pt_attr));
-		pthread_create(&(st[i].pt_tid), &(st[i].pt_attr),
+		pthread_create(&(st[i].pt_id), &(st[i].pt_attr),
 			       &st_code, &(st[i]));
 		pthread_attr_destroy(&(st[i].pt_attr));
 	}
-	for (int i = 0; i < num_servers; i++)
-		pthread_join(st[i].pt_tid, NULL);
+	for (int i = 0; i < num_servers; i++) {
+		pthread_join(st[i].pt_id, NULL);
+	}
+
+	st_uninit();
 
 	// Affiche le journal
 	st_print_results(stdout, true);

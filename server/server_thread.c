@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include <signal.h>
+#include <string.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -10,15 +11,16 @@ sockaddr_in server_addr = {
 	.sin_family = AF_INET
 };
 
-int server_socket_fd;
-const int max_wait_time = 30;
-const int server_backlog_size = 5;
+int server_socket_fd = -1;
+int max_wait_time = 30;
+int server_backlog_size = 5;
 
 int num_servers;
+int num_resources;
 
 // Nombre de clients enregistrés
 unsigned int nb_registered_clients = 0;
-//pthread_mutex_t mutex_nb_registered_clients = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex_nb_registered_clients = PTHREAD_MUTEX_INITIALIZER;
 
 /* Variables du journal */
 // Nombre de requêtes acceptées immédiatement (ACK envoyé en réponse à REQ)
@@ -45,11 +47,19 @@ pthread_mutex_t mutex_request_processed = PTHREAD_MUTEX_INITIALIZER;
 unsigned int clients_ended = 0;
 pthread_mutex_t mutex_clients_ended = PTHREAD_MUTEX_INITIALIZER;
 
+// Structures du banquier
+typedef struct client {
+	int id;
+	bool closed;
+	int *max;
+	int *alloc;
+	int *need;
+	struct client *next;
+} client;
+
 struct {
-	int *available;
-	int **max;
-	int **allocation;
-	int **need;
+	int *avail;
+	client *clients;
 	pthread_mutex_t mutex;
 } banker;
 
@@ -60,37 +70,347 @@ static void sigint_handler(int signum)
 
 void st_init()
 {
-	// Handle interrupt
+	// Ouvre un socket pour le serveur
+	st_open_socket();
+
+	// Gestion d'interruption
 	signal(SIGINT, &sigint_handler);
 
-	// TODO Attend la connection d'un client et initialise les structures pour
-	// l'algorithme du banquier
-	//pthread_mutex_init(&banker.mutex, NULL); // TODO Destroy
+	// Structure du banquier
+	banker.avail = NULL;
+	banker.clients = NULL;
+	pthread_mutex_init(&banker.mutex, NULL);
 }
 
-// FIXME
+void free_clients(client * head)
+{
+	client *tmp;
+	while (head != NULL) {
+		tmp = head;
+		head = head->next;
+		free(tmp->max);
+		free(tmp->alloc);
+		free(tmp->need);
+		free(tmp);
+	}
+}
+
+void st_uninit()
+{
+	// Structure du banquier
+	free(banker.avail);
+	free_clients(banker.clients);
+	pthread_mutex_destroy(&banker.mutex);
+
+	pthread_mutex_destroy(&mutex_nb_registered_clients);
+	pthread_mutex_destroy(&mutex_count_accepted);
+	pthread_mutex_destroy(&mutex_count_wait);
+	pthread_mutex_destroy(&mutex_count_invalid);
+	pthread_mutex_destroy(&mutex_count_dispatched);
+	pthread_mutex_destroy(&mutex_request_processed);
+	pthread_mutex_destroy(&mutex_clients_ended);
+
+	if (server_socket_fd > -1)
+		close(server_socket_fd);
+}
+
+char *recv_beg(char *args)
+{
+	pthread_mutex_lock(&banker.mutex);
+	// Verify that BEG has not been called already
+	if (banker.avail != NULL) {
+		pthread_mutex_unlock(&banker.mutex);
+		return "ERR already sent\n";
+	}
+	pthread_mutex_unlock(&banker.mutex);
+
+	if (sscanf(args, " %d\n", &num_resources) != 1)
+		return "ERR invalid arguments\n";
+	if (num_resources <= 0)
+		return "ERR invalid values\n";
+
+	pthread_mutex_lock(&banker.mutex);
+	banker.avail = calloc(num_resources, sizeof(int));
+	pthread_mutex_unlock(&banker.mutex);
+
+	return "ACK\n";
+}
+
+bool is_empty(int *res)
+{
+	for (int i = 0; i < num_resources; i++)
+		if (res[i] != 0)
+			return false;
+	return true;
+}
+
+char *recv_pro(char *args)
+{
+	pthread_mutex_lock(&banker.mutex);
+	// Verify that PRO has not been called before BEG
+	if (banker.avail == NULL) {
+		pthread_mutex_unlock(&banker.mutex);
+		return "ERR PRO before BEG\n";
+	}
+	// Verify that PRO has not been called already
+	if (!is_empty(banker.avail)) {
+		pthread_mutex_unlock(&banker.mutex);
+		return "ERR already sent\n";
+	}
+
+	/* Parse received data */
+	char *next = args;
+	int i, j;
+	for (i = 0; i < num_resources; i++) {
+		if (sscanf(next, " %d%n", &banker.avail[i], &j) != 1) {
+			memset(banker.avail, 0, ++i * sizeof(int));
+			pthread_mutex_unlock(&banker.mutex);
+			return "ERR invalid argument length\n";
+		}
+		if (banker.avail[i] < 0) {
+			memset(banker.avail, 0, ++i * sizeof(int));
+			pthread_mutex_unlock(&banker.mutex);
+			return "ERR invalid values\n";
+		}
+		next += j;
+	}
+	if (sscanf(next, " %d%n", &j, &j) == 1) {
+		memset(banker.avail, 0, ++i * sizeof(int));
+		pthread_mutex_unlock(&banker.mutex);
+		return "ERR invalid argument length\n";
+	}
+
+	if (is_empty(banker.avail)) {
+		pthread_mutex_unlock(&banker.mutex);
+		return "ERR invalid values\n";
+	}
+	pthread_mutex_unlock(&banker.mutex);
+
+	return "ACK\n";
+}
+
+char *recv_end(char *args)
+{
+	// No arguments allowed
+	if (strncmp(args, "\n", 1) != 0)
+		return "ERR invalid argument length\n";
+
+	pthread_mutex_lock(&mutex_nb_registered_clients);
+	pthread_mutex_lock(&mutex_count_dispatched);
+	if (count_dispatched < nb_registered_clients) {	// XXX
+		pthread_mutex_unlock(&mutex_nb_registered_clients);
+		pthread_mutex_unlock(&mutex_count_dispatched);
+		return "ERR clients not dispatched yet\n";
+	}
+	pthread_mutex_unlock(&mutex_nb_registered_clients);
+	pthread_mutex_unlock(&mutex_count_dispatched);
+
+	return "ACK\n";
+}
+
+client *find_client(int id)
+{
+	client *c = banker.clients;
+	while (c != NULL) {
+		if (c->id == id)
+			return c;
+		c = c->next;
+	}
+	return NULL;
+}
+
+char *recv_ini(char *args)
+{
+	pthread_mutex_lock(&banker.mutex);
+	// Verify that INI has not been called before PRO
+	if (is_empty(banker.avail)) {
+		pthread_mutex_unlock(&banker.mutex);
+		return "ERR INI before PRO\n";
+	}
+	pthread_mutex_unlock(&banker.mutex);
+
+	int num_client, i, j;
+	if (sscanf(args, " %d%n", &num_client, &j) != 1)
+		return "ERR invalid argument length\n";
+	if (num_client < 0)
+		return "ERR invalid client number\n";
+
+	/* Verify that client doesn't already exist */
+	pthread_mutex_lock(&banker.mutex);
+	if (find_client(num_client)) {
+		pthread_mutex_unlock(&banker.mutex);
+		return "ERR already exists\n";
+	}
+	pthread_mutex_unlock(&banker.mutex);
+
+	/* Parse received data */
+	char *next = args + j;
+	int *max = malloc(num_resources * sizeof(int));
+	for (i = 0; i < num_resources; i++) {
+		if (sscanf(next, " %d%n", &max[i], &j) != 1) {
+			free(max);
+			return "ERR invalid argument length\n";
+		}
+		if (max[i] < 0) {
+			free(max);
+			return "ERR invalid values\n";
+		}
+		next += j;
+	}
+	if (sscanf(next, " %d%n", &j, &j) == 1) {
+		free(max);
+		return "ERR invalid argument length\n";
+	}
+
+	if (is_empty(max)) {
+		free(max);
+		return "ERR invalid values\n";
+	}
+
+	/* Client */
+	client *c = malloc(sizeof(client));
+	c->id = num_client;
+	c->closed = false;
+	c->max = max;
+	c->alloc = calloc(num_resources, sizeof(int));
+	c->need = malloc(num_resources * sizeof(int));
+	memcpy(c->need, max, num_resources * sizeof(int));
+
+	// Insert into list
+	pthread_mutex_lock(&banker.mutex);
+	c->next = banker.clients;
+	banker.clients = c;
+	pthread_mutex_unlock(&banker.mutex);
+
+	pthread_mutex_lock(&mutex_nb_registered_clients);
+	nb_registered_clients++;
+	pthread_mutex_unlock(&mutex_nb_registered_clients);
+
+	return "ACK\n";
+}
+
+char *recv_req(char *args)
+{
+	pthread_mutex_lock(&mutex_request_processed);
+	request_processed++;
+	pthread_mutex_unlock(&mutex_request_processed);
+
+	int num_client /*, i */ , j;
+	if (sscanf(args, " %d%n", &num_client, &j) != 1) {
+		pthread_mutex_lock(&mutex_count_invalid);
+		count_invalid++;
+		pthread_mutex_unlock(&mutex_count_invalid);
+		return "ERR invalid argument length\n";
+	}
+	if (num_client < 0) {
+		pthread_mutex_lock(&mutex_count_invalid);
+		count_invalid++;
+		pthread_mutex_unlock(&mutex_count_invalid);
+		return "ERR invalid client number\n";
+	}
+
+	client *c;
+	pthread_mutex_lock(&banker.mutex);
+	if (!(c = find_client(num_client))) {
+		pthread_mutex_unlock(&banker.mutex);
+		pthread_mutex_lock(&mutex_count_invalid);
+		count_invalid++;
+		pthread_mutex_unlock(&mutex_count_invalid);
+		return "ERR REQ before INI\n";
+	}
+	if (c->closed) {
+		pthread_mutex_unlock(&banker.mutex);
+		pthread_mutex_lock(&mutex_count_invalid);
+		count_invalid++;
+		pthread_mutex_unlock(&mutex_count_invalid);
+		return "ERR REQ after CLO\n";
+	}
+
+	/* Algorithme du banquier */
+	// FIXME Algo banquier here
+	pthread_mutex_unlock(&banker.mutex);
+
+	// FIXME Counters
+	// FIXME Wait w/ random value for time being
+
+	return "ACK\n";		// FIXME
+}
+
+char *recv_clo(char *args)
+{
+	int num_client;
+	if (sscanf(args, " %d\n", &num_client) != 1)
+		return "ERR invalid arguments\n";
+	if (num_client < 0)
+		return "ERR invalid client number\n";
+
+	client *c;
+	pthread_mutex_lock(&banker.mutex);
+	if (!(c = find_client(num_client))) {
+		pthread_mutex_unlock(&banker.mutex);
+		return "ERR CLO before INI\n";
+	}
+
+	pthread_mutex_lock(&mutex_clients_ended);
+	clients_ended++;	// XXX
+	pthread_mutex_unlock(&mutex_clients_ended);
+
+	if (!is_empty(c->alloc)) {
+		pthread_mutex_unlock(&banker.mutex);
+		return "ERR resources not freed\n";
+	}
+	c->closed = true;
+	pthread_mutex_unlock(&banker.mutex);
+
+	pthread_mutex_lock(&mutex_count_dispatched);
+	count_dispatched++;
+	pthread_mutex_unlock(&mutex_count_dispatched);
+
+	return "ACK\n";
+}
+
 void st_process_requests(server_thread * st, int socket_fd)
 {
 	FILE *socket_r = fdopen(socket_fd, "r");
 	FILE *socket_w = fdopen(socket_fd, "w");
 
-	while (true) {
-		char cmd[4] = { '\0', '\0', '\0', '\0' };
+	while (accepting_connections) {
+		char cmd[4] = "";
 		if (!fread(cmd, 3, 1, socket_r))
 			break;
+
 		char *args = NULL;
 		size_t args_len = 0;
-		ssize_t cnt = getline(&args, &args_len, socket_r);
-		if (!args || cnt < 1 || args[cnt - 1] != '\n') {
-			printf("Thread %d received incomplete cmd=%s!\n",
-			       st->id, cmd);
+		ssize_t count = getline(&args, &args_len, socket_r);
+		if (!args || count < 1 || args[count - 1] != '\n') {
+			fprintf(stderr,
+				"Thread %d received incomplete command: %s\n",
+				st->id, cmd);
 			break;
+		} else {
+			fprintf(stdout,
+				"Thread %d received command: %s%s",
+				st->id, cmd, args);
 		}
 
-		printf("Thread %d received the command: %s%s", st->id, cmd,
-		       args);
+		char *answer = "ERR unknown command\n";
+		if (strcmp(cmd, "BEG") == 0) {
+			answer = recv_beg(args);
+		} else if (strcmp(cmd, "PRO") == 0) {
+			answer = recv_pro(args);
+		} else if (strcmp(cmd, "END") == 0) {
+			answer = recv_end(args);
+			if (strncmp(answer, "ACK", 3) == 0)
+				accepting_connections = false;	// XXX
+		} else if (strcmp(cmd, "INI") == 0) {
+			answer = recv_ini(args);
+		} else if (strcmp(cmd, "REQ") == 0) {
+			answer = recv_req(args);
+		} else if (strcmp(cmd, "CLO") == 0) {
+			answer = recv_clo(args);
+		}
 
-		fprintf(socket_w, "ERR Unknown command\n");
+		fprintf(socket_w, answer);
 		fflush(socket_w);
 		free(args);
 	}
@@ -137,16 +457,17 @@ void *st_code(void *param)
 	return NULL;
 }
 
-// Ouvre un socket pour le serveur
 void st_open_socket()
 {
 	server_socket_fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
-	if (server_socket_fd < 0)
+	if (server_socket_fd < 0) {
 		perror("ERROR creating socket");
+		exit(1);
+	}
 
 	int reuse = 1;
 	if (setsockopt
-	    (server_socket_fd, SOL_SOCKET, SO_REUSEPORT,
+	    (server_socket_fd, SOL_SOCKET, SO_REUSEADDR,
 	     &reuse, sizeof(reuse)) < 0) {
 		perror("setsockopt");
 		exit(1);

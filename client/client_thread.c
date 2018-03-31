@@ -354,7 +354,7 @@ void ct_create_and_start(client_thread * ct)
 {
 	pthread_attr_init(&(ct->pt_attr));
 	pthread_attr_setdetachstate(&(ct->pt_attr), PTHREAD_CREATE_DETACHED);
-	pthread_create(&(ct->pt_tid), &(ct->pt_attr), &ct_code, ct);
+	pthread_create(&(ct->pt_id), &(ct->pt_attr), &ct_code, ct);
 	pthread_attr_destroy(&(ct->pt_attr));
 }
 
