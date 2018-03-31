@@ -48,17 +48,18 @@ unsigned int clients_ended = 0;
 pthread_mutex_t mutex_clients_ended = PTHREAD_MUTEX_INITIALIZER;
 
 // Structures du banquier
-typedef struct matrix {
-	int client;
-	int *resources;
-	struct matrix *next;
-} matrix;
+typedef struct client {
+	int id;
+	bool closed;
+	int *max;
+	int *alloc;
+	int *need;
+	struct client *next;
+} client;
 
 struct {
 	int *avail;
-	matrix *max;
-	matrix *alloc;
-	matrix *need;
+	client *clients;
 	pthread_mutex_t mutex;
 } banker;
 
@@ -77,19 +78,19 @@ void st_init()
 
 	// Structure du banquier
 	banker.avail = NULL;
-	banker.max = NULL;
-	banker.alloc = NULL;
-	banker.need = NULL;
+	banker.clients = NULL;
 	pthread_mutex_init(&banker.mutex, NULL);
 }
 
-void freemat(matrix * head)
+void free_clients(client * head)
 {
-	matrix *tmp;
+	client *tmp;
 	while (head != NULL) {
 		tmp = head;
 		head = head->next;
-		free(tmp->resources);
+		free(tmp->max);
+		free(tmp->alloc);
+		free(tmp->need);
 		free(tmp);
 	}
 }
@@ -98,9 +99,7 @@ void st_uninit()
 {
 	// Structure du banquier
 	free(banker.avail);
-	freemat(banker.max);
-	freemat(banker.alloc);
-	freemat(banker.need);
+	free_clients(banker.clients);
 	pthread_mutex_destroy(&banker.mutex);
 
 	pthread_mutex_destroy(&mutex_nb_registered_clients);
@@ -137,10 +136,10 @@ char *recv_beg(char *args)
 	return "ACK\n";
 }
 
-bool is_empty(int *arr)
+bool is_empty(int *res)
 {
 	for (int i = 0; i < num_resources; i++)
-		if (arr[i] != 0)
+		if (res[i] != 0)
 			return false;
 	return true;
 }
@@ -198,7 +197,7 @@ char *recv_end(char *args)
 
 	pthread_mutex_lock(&mutex_nb_registered_clients);
 	pthread_mutex_lock(&mutex_count_dispatched);
-	if (count_dispatched < nb_registered_clients) {
+	if (count_dispatched < nb_registered_clients) {	// XXX
 		pthread_mutex_unlock(&mutex_nb_registered_clients);
 		pthread_mutex_unlock(&mutex_count_dispatched);
 		return "ERR clients not dispatched yet\n";
@@ -209,13 +208,13 @@ char *recv_end(char *args)
 	return "ACK\n";
 }
 
-matrix *client_exists(int client)
+client *find_client(int id)
 {
-	matrix *mat = banker.alloc;
-	while (mat != NULL) {
-		if (mat->client == client)
-			return mat;
-		mat = mat->next;
+	client *c = banker.clients;
+	while (c != NULL) {
+		if (c->id == id)
+			return c;
+		c = c->next;
 	}
 	return NULL;
 }
@@ -235,9 +234,10 @@ char *recv_ini(char *args)
 		return "ERR invalid argument length\n";
 	if (num_client < 0)
 		return "ERR invalid client number";
-	// Verify that client doesn't already exist
+
+	/* Verify that client doesn't already exist */
 	pthread_mutex_lock(&banker.mutex);
-	if (client_exists(num_client)) {
+	if (find_client(num_client)) {
 		pthread_mutex_unlock(&banker.mutex);
 		return "ERR already exists\n";
 	}
@@ -267,38 +267,30 @@ char *recv_ini(char *args)
 		return "ERR invalid values\n";
 	}
 
-	matrix *mat;
+	/* Client */
+	client *c = malloc(sizeof(client));
+	c->id = num_client;
+	c->closed = false;
+	c->max = max;
+	c->alloc = calloc(num_resources, sizeof(int));
+	c->need = malloc(num_resources * sizeof(int));
+	memcpy(c->need, max, num_resources * sizeof(int));
+
+	// Insert into list
 	pthread_mutex_lock(&banker.mutex);
-	// Maximum
-	mat = malloc(sizeof(matrix));
-	mat->client = num_client;
-	mat->resources = max;
-	mat->next = banker.max;
-	banker.max = mat;
-	// Needed
-	mat = malloc(sizeof(matrix));
-	mat->client = num_client;
-	mat->resources = malloc(num_resources * sizeof(int));
-	memcpy(mat->resources, max, num_resources * sizeof(int));
-	mat->next = banker.need;
-	banker.need = mat;
-	// Allocated
-	mat = malloc(sizeof(matrix));
-	mat->client = num_client;
-	mat->resources = malloc(num_resources * sizeof(int));
-	memset(mat->resources, 0, num_resources * sizeof(int));
-	mat->next = banker.alloc;
-	banker.alloc = mat;
+	c->next = banker.clients;
+	banker.clients = c;
 	pthread_mutex_unlock(&banker.mutex);
 
 	pthread_mutex_lock(&mutex_nb_registered_clients);
 	nb_registered_clients++;
 	pthread_mutex_unlock(&mutex_nb_registered_clients);
+
 	return "ACK\n";
 }
 
-// FIXME Wait w/ random value for time being
-// Look for item in matrix
+// FIXME Wait w/ random value for time being Look for item in matrix
+// Verify for closed
 char *recv_req(char *args)
 {
 	return "ACK\n";
@@ -312,32 +304,33 @@ char *recv_clo(char *args)
 	if (num_client < 0)
 		return "ERR invalid client number";
 
-	matrix *mat;
+	client *c;
 	pthread_mutex_lock(&banker.mutex);
-	if ((mat = client_exists(num_client))) {
-		pthread_mutex_lock(&mutex_clients_ended);
-		clients_ended++;	// XXX
-		pthread_mutex_unlock(&mutex_clients_ended);
-		if (!is_empty(mat->resources)) {
-			pthread_mutex_unlock(&banker.mutex);
-			return "ERR resources not freed";
-		}
-		mat->client = -1;
-	} else {
+	if ((c = find_client(num_client)) == NULL) {
 		pthread_mutex_unlock(&banker.mutex);
 		return "ERR invalid client number";
 	}
+
+	pthread_mutex_lock(&mutex_clients_ended);
+	clients_ended++;	// XXX
+	pthread_mutex_unlock(&mutex_clients_ended);
+
+	if (!is_empty(c->alloc)) {
+		pthread_mutex_unlock(&banker.mutex);
+		return "ERR resources not freed";
+	}
+	c->closed = true;
 	pthread_mutex_unlock(&banker.mutex);
 
 	pthread_mutex_lock(&mutex_count_dispatched);
 	count_dispatched++;
 	pthread_mutex_unlock(&mutex_count_dispatched);
+
 	return "ACK\n";
 }
 
 void st_process_requests(server_thread * st, int socket_fd)
 {
-	// TODO Use a read/write file instead of two separate
 	FILE *socket_r = fdopen(socket_fd, "r");
 	FILE *socket_w = fdopen(socket_fd, "w");
 
