@@ -5,8 +5,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <sys/queue.h>
-
 #include "server_thread.h"
 
 sockaddr_in server_addr = {
@@ -49,11 +47,18 @@ pthread_mutex_t mutex_request_processed = PTHREAD_MUTEX_INITIALIZER;
 unsigned int clients_ended = 0;
 pthread_mutex_t mutex_clients_ended = PTHREAD_MUTEX_INITIALIZER;
 
+// Structures du banquier
+typedef struct matrix {
+	int client;
+	int *resources;
+	struct matrix *next;
+} matrix;
+
 struct {
 	int *avail;
-	int **max;
-	int **alloc;
-	int **need;
+	matrix *max;
+	matrix *alloc;
+	matrix *need;
 	pthread_mutex_t mutex;
 } banker;
 
@@ -78,12 +83,14 @@ void st_init()
 	pthread_mutex_init(&banker.mutex, NULL);
 }
 
-void freemat(int **matrix)
+void freemat(matrix * head)
 {
-	if (matrix != NULL) {
-		for (int i = 0; i < nb_registered_clients; i++)
-			free(matrix[i]);
-		free(matrix);
+	matrix *tmp;
+	while (head != NULL) {
+		tmp = head;
+		head = head->next;
+		free(tmp->resources);
+		free(tmp);
 	}
 }
 
@@ -126,6 +133,7 @@ char *recv_beg(char *args)
 	pthread_mutex_lock(&banker.mutex);
 	banker.avail = calloc(num_resources, sizeof(int));
 	pthread_mutex_unlock(&banker.mutex);
+
 	return "ACK\n";
 }
 
@@ -153,7 +161,7 @@ char *recv_pro(char *args)
 
 	/* Parse received data */
 	char *next = args;
-	int i, j = 0;
+	int i, j;
 	for (i = 0; i < num_resources; i++) {
 		if (sscanf(next, " %d%n", &banker.avail[i], &j) != 1) {
 			memset(banker.avail, 0, ++i * sizeof(int));
@@ -177,8 +185,8 @@ char *recv_pro(char *args)
 		pthread_mutex_unlock(&banker.mutex);
 		return "ERR invalid values\n";
 	}
-
 	pthread_mutex_unlock(&banker.mutex);
+
 	return "ACK\n";
 }
 
@@ -195,53 +203,135 @@ char *recv_end(char *args)
 		pthread_mutex_unlock(&mutex_count_dispatched);
 		return "ERR clients not dispatched yet\n";
 	}
-
 	pthread_mutex_unlock(&mutex_nb_registered_clients);
 	pthread_mutex_unlock(&mutex_count_dispatched);
+
 	return "ACK\n";
 }
 
-// FIXME
+matrix *client_exists(int client)
+{
+	matrix *mat = banker.alloc;
+	while (mat != NULL) {
+		if (mat->client == client)
+			return mat;
+		mat = mat->next;
+	}
+	return NULL;
+}
+
 char *recv_ini(char *args)
 {
-	/*pthread_mutex_lock(&banker.mutex);
-	   if (is_empty(banker.avail)) {
-	   pthread_mutex_unlock(&banker.mutex);
-	   return "ERR INI before PRO\n";
-	   }
-	   // TODO Should have strucs w/ IDs, to manage random IDs
+	pthread_mutex_lock(&banker.mutex);
+	// Verify that INI has not been called before PRO
+	if (is_empty(banker.avail)) {
+		pthread_mutex_unlock(&banker.mutex);
+		return "ERR INI before PRO\n";
+	}
+	pthread_mutex_unlock(&banker.mutex);
 
-	   int num_client;              // XXX
+	int num_client, i, j;
+	if (sscanf(args, " %d%n", &num_client, &j) != 1)
+		return "ERR invalid argument length\n";
+	if (num_client < 0)
+		return "ERR invalid client number";
+	// Verify that client doesn't already exist
+	pthread_mutex_lock(&banker.mutex);
+	if (client_exists(num_client)) {
+		pthread_mutex_unlock(&banker.mutex);
+		return "ERR already exists\n";
+	}
+	pthread_mutex_unlock(&banker.mutex);
 
-	   int next = 0;
-	   int i, len = sizeof(banker.avail) / sizeof(int);     // len = nb ressources
-	   if (sscanf(args, " %d%n", &num_client, &next) != 1) {
-	   pthread_mutex_unlock(&banker.mutex);
-	   return "ERR invalid arguments\n";    // XXX
-	   }
-	   // TODO Already sent for num_client
-	   pthread_mutex_unlock(&banker.mutex); */
+	/* Parse received data */
+	char *next = args + j;
+	int *max = malloc(num_resources * sizeof(int));
+	for (i = 0; i < num_resources; i++) {
+		if (sscanf(next, " %d%n", &max[i], &j) != 1) {
+			free(max);
+			return "ERR invalid argument length\n";
+		}
+		if (max[i] < 0) {
+			free(max);
+			return "ERR invalid values\n";
+		}
+		next += j;
+	}
+	if (sscanf(next, " %d%n", &j, &j) == 1) {
+		free(max);
+		return "ERR invalid argument length\n";
+	}
 
+	if (is_empty(max)) {
+		free(max);
+		return "ERR invalid values\n";
+	}
+
+	matrix *mat;
+	pthread_mutex_lock(&banker.mutex);
+	// Maximum
+	mat = malloc(sizeof(matrix));
+	mat->client = num_client;
+	mat->resources = max;
+	mat->next = banker.max;
+	banker.max = mat;
+	// Needed
+	mat = malloc(sizeof(matrix));
+	mat->client = num_client;
+	mat->resources = malloc(num_resources * sizeof(int));
+	memcpy(mat->resources, max, num_resources * sizeof(int));
+	mat->next = banker.need;
+	banker.need = mat;
+	// Allocated
+	mat = malloc(sizeof(matrix));
+	mat->client = num_client;
+	mat->resources = malloc(num_resources * sizeof(int));
+	memset(mat->resources, 0, num_resources * sizeof(int));
+	mat->next = banker.alloc;
+	banker.alloc = mat;
+	pthread_mutex_unlock(&banker.mutex);
+
+	pthread_mutex_lock(&mutex_nb_registered_clients);
+	nb_registered_clients++;
+	pthread_mutex_unlock(&mutex_nb_registered_clients);
 	return "ACK\n";
 }
 
-// FIXME
+// FIXME Wait w/ random value for time being
+// Look for item in matrix
 char *recv_req(char *args)
 {
 	return "ACK\n";
 }
 
-// FIXME
 char *recv_clo(char *args)
 {
-	/*int num_client;
-	   if (sscanf(args, " %d\n", &num_client) != 1)
-	   return "ERR invalid arguments\n";
-	   if (num_client <= 0) // FIXME Should look in all structs for ID
-	   return "ERR invalid client\n";       // XXX */
-	// Already sent + Should not close already closed client
-	// All resources freed before calling CLO
+	int num_client;
+	if (sscanf(args, " %d\n", &num_client) != 1)
+		return "ERR invalid arguments\n";
+	if (num_client < 0)
+		return "ERR invalid client number";
 
+	matrix *mat;
+	pthread_mutex_lock(&banker.mutex);
+	if ((mat = client_exists(num_client))) {
+		pthread_mutex_lock(&mutex_clients_ended);
+		clients_ended++;	// XXX
+		pthread_mutex_unlock(&mutex_clients_ended);
+		if (!is_empty(mat->resources)) {
+			pthread_mutex_unlock(&banker.mutex);
+			return "ERR resources not freed";
+		}
+		mat->client = -1;
+	} else {
+		pthread_mutex_unlock(&banker.mutex);
+		return "ERR invalid client number";
+	}
+	pthread_mutex_unlock(&banker.mutex);
+
+	pthread_mutex_lock(&mutex_count_dispatched);
+	count_dispatched++;
+	pthread_mutex_unlock(&mutex_count_dispatched);
 	return "ACK\n";
 }
 
