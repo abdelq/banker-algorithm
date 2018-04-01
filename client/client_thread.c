@@ -1,7 +1,4 @@
-#define _XOPEN_SOURCE 500
-
 #include <string.h>
-#include <time.h>
 #include <unistd.h>
 
 #include "client_thread.h"
@@ -107,7 +104,7 @@ int send_cmd(int socket, char *send_buf, char *recv_buf)
 			return -1;
 		// Receive
 		memset(recv_buf, '\0', strlen(recv_buf));	// XXX
-		if (recvline(socket, recv_buf, sizeof(recv_buf)) < 0)
+		if (recvline(socket, recv_buf, 64) < 0)
 			return -1;
 	} while (sscanf(recv_buf, "WAIT %d\n", &wait_dur) == 1 && ++wait_num);
 
@@ -120,7 +117,7 @@ int send_beg()
 	if (socket_fd < 0)
 		return 0;
 
-	char send_buf[128] = "", recv_buf[128] = "";	// XXX
+	char send_buf[256] = "", recv_buf[64] = "";
 	snprintf(send_buf, sizeof(send_buf), "BEG %d\n", num_resources);
 
 	if (send_cmd(socket_fd, send_buf, recv_buf) < 0) {
@@ -134,7 +131,7 @@ int send_beg()
 		return 1;
 	}
 
-	fprintf(stderr, "BEG: %s\n", recv_buf);
+	fprintf(stderr, "BEG: %s", recv_buf);
 	close(socket_fd);
 	return 0;
 }
@@ -145,7 +142,7 @@ int send_pro()
 	if (socket_fd < 0)
 		return 0;
 
-	char send_buf[128] = "PRO", recv_buf[128] = "";	// XXX
+	char send_buf[256] = "PRO", recv_buf[64] = "";
 	int len = 3;
 	for (int i = 0; i < num_resources; i++)
 		len += snprintf(send_buf + len, sizeof(send_buf) - len,
@@ -163,7 +160,7 @@ int send_pro()
 		return 1;
 	}
 
-	fprintf(stderr, "PRO: %s\n", recv_buf);
+	fprintf(stderr, "PRO: %s", recv_buf);
 	close(socket_fd);
 	return 0;
 }
@@ -174,7 +171,7 @@ int send_end()
 	if (socket_fd < 0)
 		return 0;
 
-	char send_buf[128] = "END\n", recv_buf[128] = "";	// XXX
+	char send_buf[256] = "END\n", recv_buf[64] = "";
 
 	if (send_cmd(socket_fd, send_buf, recv_buf) < 0) {
 		perror("END");
@@ -187,14 +184,14 @@ int send_end()
 		return 1;
 	}
 
-	fprintf(stderr, "END: %s\n", recv_buf);
+	fprintf(stderr, "END: %s", recv_buf);
 	close(socket_fd);
 	return 0;
 }
 
 int send_ini(int client_id, int socket_fd)
 {
-	char send_buf[128] = "", recv_buf[128] = "";	// XXX
+	char send_buf[256] = "", recv_buf[64] = "";
 	int len = snprintf(send_buf, sizeof(send_buf), "INI %d", client_id);
 	int ini_resources[num_resources];
 	for (int i = 0; i < num_resources; i++) {
@@ -218,13 +215,13 @@ int send_ini(int client_id, int socket_fd)
 		return 1;
 	}
 
-	fprintf(stderr, "INI: %s\n", recv_buf);
+	fprintf(stderr, "INI: %s", recv_buf);
 	return 0;
 }
 
 int send_req(int client_id, int socket_fd, int request_id, int free)
 {
-	char send_buf[128] = "", recv_buf[128] = "";	// XXX
+	char send_buf[256] = "", recv_buf[64] = "";
 	int len = snprintf(send_buf, sizeof(send_buf), "REQ %d", client_id);
 	int req_resources[num_resources];
 	for (int i = 0; i < num_resources; i++) {
@@ -233,8 +230,7 @@ int send_req(int client_id, int socket_fd, int request_id, int free)
 
 		req_resources[i] = -cur;
 		if (!free)
-			req_resources[i] +=
-			    rand() / (RAND_MAX / (max + cur + 1) + 1);
+			req_resources[i] += rand() / (RAND_MAX / (max + 1) + 1);	// [-cur, need]
 
 		len += snprintf(send_buf + len, sizeof(send_buf) - len,
 				" %d", req_resources[i]);
@@ -267,13 +263,13 @@ int send_req(int client_id, int socket_fd, int request_id, int free)
 		pthread_mutex_unlock(&mutex_count_invalid);
 	}
 
-	fprintf(stderr, "REQ: %s\n", recv_buf);
+	fprintf(stderr, "REQ: %s", recv_buf);
 	return 0;
 }
 
 int send_clo(int client_id, int socket_fd)
 {
-	char send_buf[128] = "", recv_buf[128] = "";	// XXX
+	char send_buf[256] = "", recv_buf[64] = "";
 	snprintf(send_buf, sizeof(send_buf), "CLO %d\n", client_id);
 
 	if (send_cmd(socket_fd, send_buf, recv_buf) < 0) {
@@ -284,7 +280,7 @@ int send_clo(int client_id, int socket_fd)
 	if (strncmp(recv_buf, "ACK", 3) == 0)
 		return 1;
 
-	fprintf(stderr, "CLO: %s\n", recv_buf);
+	fprintf(stderr, "CLO: %s", recv_buf);
 	return 0;
 }
 
@@ -333,8 +329,7 @@ void *ct_code(void *param)
 
 void ct_wait_server()
 {
-	// XXX Possible race condition
-	while (count_dispatched + count_undispatched < num_clients)
+	while (count_dispatched + count_undispatched < num_clients)	// XXX
 		sleep(1);
 
 	pthread_mutex_destroy(&mutex_count_accepted);

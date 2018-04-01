@@ -27,10 +27,10 @@ int main(int argc, char *argv[])
 
 		// Lance les fils d'exécution
 		client_thread client_threads[num_clients];
-		for (int i = 0; i < num_clients; i++)
+		for (int i = 0; i < num_clients; i++) {
 			ct_init(&(client_threads[i]), i);
-		for (int i = 0; i < num_clients; i++)
 			ct_create_and_start(&(client_threads[i]));
+		}
 		ct_wait_server();
 
 		send_end();
