@@ -1,4 +1,7 @@
+#define _XOPEN_SOURCE 500
+
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "client_thread.h"
@@ -74,7 +77,7 @@ int sendall(int socket, char *buffer, size_t length)
 
 // Receives from socket until a newline or EOF is encountered
 // Source: eg.bucknell.edu/~csci335/2006-fall/code/cServer/readln.cc
-int recvline(int socket, char *buffer, size_t length)
+int recvline(int socket, char *buffer, int length)
 {
 	char *buf = buffer, c;
 	ssize_t received;
@@ -220,7 +223,7 @@ int send_ini(int client_id, int socket_fd)
 	return 0;
 }
 
-int send_req(int client_id, int socket_fd, int request_id, int free)
+int send_req(int client_id, int socket_fd, int free)
 {
 	char send_buf[256] = "", recv_buf[64] = "";
 	int len = snprintf(send_buf, sizeof(send_buf), "REQ %d", client_id);
@@ -299,7 +302,7 @@ void *ct_code(void *param)
 	// REQ
 	for (int req_id = 0; req_id < num_request_per_client; req_id++) {
 		printf("Client %d is sending its %d request\n", ct->id, req_id);
-		send_req(ct->id, socket_fd, req_id,
+		send_req(ct->id, socket_fd,
 			 num_request_per_client - req_id == 1);
 
 		pthread_mutex_lock(&mutex_request_sent);
@@ -330,7 +333,7 @@ void *ct_code(void *param)
 
 void ct_wait_server()
 {
-	while (count_dispatched + count_undispatched < num_clients)	// XXX
+	while (count_dispatched + count_undispatched < (unsigned int)num_clients)	// XXX
 		sleep(1);
 
 	pthread_mutex_destroy(&mutex_count_accepted);

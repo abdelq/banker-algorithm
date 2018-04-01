@@ -4,7 +4,7 @@ BUILD_DIR=build
 TIMEOUT=10
 VALGRIND=valgrind --leak-check=yes --error-exitcode=1
 CC=gcc
-CFLAGS=-g -std=gnu99 -Wall -pedantic -D_REENTRENT=1
+CFLAGS=-g -std=gnu99 -Wall -Wextra -pedantic -D_REENTRENT=1
 ifdef BEG_PRO_ATOMIC
 CFLAGS += -DBEG_PRO_ATOMIC
 endif

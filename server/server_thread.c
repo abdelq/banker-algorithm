@@ -1,5 +1,8 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include <signal.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "server_thread.h"
@@ -44,13 +47,13 @@ unsigned int clients_ended = 0;
 pthread_mutex_t mutex_clients_ended = PTHREAD_MUTEX_INITIALIZER;
 
 // Structure du banquier
-struct {
+struct banker {
 	int *avail;
 	client *clients;
 	pthread_mutex_t mutex;
 } banker;
 
-static void sigint_handler(int signum)
+static void sigint_handler()
 {
 	accepting_connections = false;
 }
