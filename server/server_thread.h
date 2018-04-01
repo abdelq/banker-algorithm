@@ -32,6 +32,7 @@ void *st_code(void *);
 typedef struct client {
 	int id;
 	bool closed;
+	bool waiting;
 	int *max;
 	int *alloc;
 	int *need;

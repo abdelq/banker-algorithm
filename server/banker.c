@@ -29,10 +29,11 @@ void deallocate_req(int *req, int *avail, int *alloc, int *need)
 }
 
 // Ask Gringotts Wizarding Bank
+// Source: geeksforgeeks.org/program-bankers-algorithm-set-1-safety-algorithm
 bool is_safe(int num_clients, int *avail, client * clients)
 {
 	bool finish[num_clients];
-	memset(finish, false, num_clients * sizeof(bool));	// XXX
+	memset(finish, false, num_clients * sizeof(bool));
 
 	int work[num_resources];
 	memcpy(work, avail, num_resources * sizeof(int));

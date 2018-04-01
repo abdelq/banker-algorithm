@@ -207,6 +207,7 @@ char *recv_ini(char *args)
 	client *c = malloc(sizeof(client));
 	c->id = num_client;
 	c->closed = false;
+	c->waiting = false;
 	c->max = max;
 	c->alloc = calloc(num_resources, sizeof(int));
 	c->need = malloc(num_resources * sizeof(int));
@@ -255,6 +256,7 @@ char *recv_req(char *args)
 		return "ERR REQ before INI\n";
 	}
 	if (c->closed) {
+		/*c->waiting = false; */
 		pthread_mutex_unlock(&banker.mutex);
 		pthread_mutex_lock(&mutex_count_invalid);
 		count_invalid++;
@@ -268,6 +270,9 @@ char *recv_req(char *args)
 	int req[num_resources];
 	for (int i = 0; i < num_resources; i++) {
 		if (sscanf(next, " %d%n", &req[i], &j) != 1) {
+			/*pthread_mutex_lock(&banker.mutex);
+			   c->waiting = false;
+			   pthread_mutex_unlock(&banker.mutex); */
 			pthread_mutex_lock(&mutex_count_invalid);
 			count_invalid++;
 			pthread_mutex_unlock(&mutex_count_invalid);
@@ -277,15 +282,19 @@ char *recv_req(char *args)
 	}
 
 	if (sscanf(next, " %d%n", &j, &j) == 1) {
+		/*pthread_mutex_lock(&banker.mutex);
+		   c->waiting = false;
+		   pthread_mutex_unlock(&banker.mutex); */
 		pthread_mutex_lock(&mutex_count_invalid);
 		count_invalid++;
 		pthread_mutex_unlock(&mutex_count_invalid);
 		return "ERR invalid argument length\n";
 	}
 
-	/* Algorithme du banquier */
+	/* Requesting more than needed */
 	pthread_mutex_lock(&banker.mutex);
 	if (res_more_than(req, c->need)) {
+		/*c->waiting = false; */
 		pthread_mutex_unlock(&banker.mutex);
 		pthread_mutex_lock(&mutex_count_invalid);
 		count_invalid++;
@@ -293,8 +302,10 @@ char *recv_req(char *args)
 		return "ERR requesting more than needed\n";
 	}
 
+	/* Freeing more than allocated */
 	for (int i = 0; i < num_resources; i++) {
 		if (req[i] + c->alloc[i] < 0) {
+			/*c->waiting = false; */
 			pthread_mutex_unlock(&banker.mutex);
 			pthread_mutex_lock(&mutex_count_invalid);
 			count_invalid++;
@@ -303,20 +314,37 @@ char *recv_req(char *args)
 		}
 	}
 
+	/* Requesting more than available */
 	if (res_more_than(req, banker.avail)) {
+		c->waiting = true;
 		pthread_mutex_unlock(&banker.mutex);
-		return "WAIT 2\n";	// FIXME random + counter
+		return "WAIT 2\n";	// FIXME random
 	}
-	// FIXME
+
+	/* Algorithme du banquier */
 	allocate_req(req, banker.avail, c->alloc, c->need);
-	/*pthread_mutex_lock(&mutex_nb_registered_clients); */
+	pthread_mutex_lock(&mutex_nb_registered_clients);
 	if (!is_safe(nb_registered_clients, banker.avail, banker.clients)) {
-		/*pthread_mutex_unlock(&mutex_nb_registered_clients); */
+		pthread_mutex_unlock(&mutex_nb_registered_clients);
 		deallocate_req(req, banker.avail, c->alloc, c->need);
+		c->waiting = true;
 		pthread_mutex_unlock(&banker.mutex);
-		return "WAIT 1\n";	// FIXME random + counter
+		return "WAIT 1\n";	// FIXME random
 	}
-	pthread_mutex_unlock(&banker.mutex);
+	pthread_mutex_unlock(&mutex_nb_registered_clients);
+
+	if (c->waiting) {
+		c->waiting = false;
+		pthread_mutex_unlock(&banker.mutex);
+		pthread_mutex_lock(&mutex_count_wait);
+		count_wait++;
+		pthread_mutex_unlock(&mutex_count_wait);
+	} else {
+		pthread_mutex_unlock(&banker.mutex);
+		pthread_mutex_lock(&mutex_count_accepted);
+		count_accepted++;
+		pthread_mutex_unlock(&mutex_count_accepted);
+	}
 
 	return "ACK\n";
 }
