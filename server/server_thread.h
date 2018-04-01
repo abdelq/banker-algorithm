@@ -19,6 +19,9 @@ extern bool accepting_connections;
 /* Nombre de serveurs */
 extern int num_servers;
 
+/* Nombre de resources */
+extern int num_resources;
+
 typedef struct server_thread {
 	unsigned int id;
 	pthread_t pt_id;
@@ -30,6 +33,20 @@ void st_init(void);
 void st_uninit(void);
 void st_process_request(server_thread *, int);
 void *st_code(void *);
+
+typedef struct client {
+	int id;
+	bool closed;
+	int *max;
+	int *alloc;
+	int *need;
+	struct client *next;
+} client;
+
+bool req_more_than(int *, int *);
+void allocate_req(int *, int *, int *, int *);
+void deallocate_req(int *, int *, int *, int *);
+bool is_safe(int, int *, client *);
 
 void st_print_results(FILE *, bool);
 

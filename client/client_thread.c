@@ -310,7 +310,7 @@ void *ct_code(void *param)
 		pthread_mutex_unlock(&mutex_request_sent);
 
 		// Attendre un petit peu (<0.1ms) pour simuler le calcul
-		struct timespec delay = { 0, rand() % (100 * 1000) };
+		struct timespec delay = { 0, rand() % (100 * 1000) };	// XXX
 		nanosleep(&delay, NULL);
 	}
 

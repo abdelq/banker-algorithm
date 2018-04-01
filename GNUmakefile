@@ -11,7 +11,7 @@ endif
 LDFLAGS=-pthread
 
 CLT_O = main.o client_thread.o
-SRV_O = main.o server_thread.o
+SRV_O = main.o server_thread.o banker.o
 
 .PHONY: default all clean format client server test \
 	run \
@@ -70,7 +70,7 @@ release:
 	    */*.[ch] *.tex *.md GNUmakefile
 
 
-$(BUILD_DIR)/server/main.o $(BUILD_DIR)/server/server_thread.o: \
+$(BUILD_DIR)/server/main.o $(BUILD_DIR)/server/server_thread.o $(BUILD_DIR)/server/banker.o: \
     server/server_thread.h
 $(BUILD_DIR)/client/main.o $(BUILD_DIR)/client/client_thread.o: \
     client/client_thread.h
