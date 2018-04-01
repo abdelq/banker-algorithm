@@ -318,7 +318,7 @@ char *recv_req(char *args)
 	if (res_more_than(req, banker.avail)) {
 		c->waiting = true;
 		pthread_mutex_unlock(&banker.mutex);
-		return "WAIT 2\n";	// FIXME random
+		return "WAIT 1\n";
 	}
 
 	/* Algorithme du banquier */
@@ -329,7 +329,7 @@ char *recv_req(char *args)
 		deallocate_req(req, banker.avail, c->alloc, c->need);
 		c->waiting = true;
 		pthread_mutex_unlock(&banker.mutex);
-		return "WAIT 1\n";	// FIXME random
+		return "WAIT 1\n";
 	}
 	pthread_mutex_unlock(&mutex_nb_registered_clients);
 
@@ -418,6 +418,11 @@ void st_process_requests(server_thread * st, int socket_fd)
 			answer = recv_ini(args);
 		} else if (strcmp(cmd, "REQ") == 0) {
 			answer = recv_req(args);
+			if (strncmp(answer, "WAIT", 4) == 0) {
+				char new_answer[8];
+				snprintf(new_answer, 8, "WAIT %d\n", 1 + rand() % 5);	// XXX
+				answer = new_answer;
+			}
 		} else if (strcmp(cmd, "CLO") == 0) {
 			answer = recv_clo(args);
 		}
