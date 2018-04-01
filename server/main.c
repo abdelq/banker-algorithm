@@ -12,11 +12,10 @@ int main(int argc, char *argv[])
 	server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 	server_addr.sin_port = htons(atoi(argv[1]));
 
-	num_servers = atoi(argv[2]);
-
 	st_init();
 
 	// Lance les fils d'exécution
+	int num_servers = atoi(argv[2]);
 	server_thread st[num_servers];
 	for (int i = 0; i < num_servers; i++) {
 		st[i].id = i;
@@ -24,9 +23,7 @@ int main(int argc, char *argv[])
 		pthread_create(&(st[i].pt_id), &(st[i].pt_attr),
 			       &st_code, &(st[i]));
 		pthread_attr_destroy(&(st[i].pt_attr));
-	}
-	for (int i = 0; i < num_servers; i++) {
-		pthread_join(st[i].pt_id, NULL);
+		pthread_join(st[i].pt_id, NULL);	// XXX
 	}
 
 	st_uninit();

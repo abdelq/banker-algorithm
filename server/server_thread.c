@@ -1,8 +1,5 @@
-#define _POSIX_C_SOURCE 200809L
-
 #include <signal.h>
 #include <string.h>
-#include <time.h>
 #include <unistd.h>
 
 #include "server_thread.h"
@@ -15,7 +12,6 @@ int server_socket_fd = -1;
 int max_wait_time = 30;
 int server_backlog_size = 5;
 
-int num_servers;
 int num_resources;
 
 // Nombre de clients enregistrés
@@ -59,52 +55,6 @@ static void sigint_handler(int signum)
 	accepting_connections = false;
 }
 
-void st_init()
-{
-	// Ouvre un socket pour le serveur
-	st_open_socket();
-
-	// Gestion d'interruption
-	signal(SIGINT, &sigint_handler);
-
-	// Structure du banquier
-	banker.avail = NULL;
-	banker.clients = NULL;
-	pthread_mutex_init(&banker.mutex, NULL);
-}
-
-void free_clients(client * head)
-{
-	client *tmp;
-	while (head != NULL) {
-		tmp = head;
-		head = head->next;
-		free(tmp->max);
-		free(tmp->alloc);
-		free(tmp->need);
-		free(tmp);
-	}
-}
-
-void st_uninit()
-{
-	// Structure du banquier
-	free(banker.avail);
-	free_clients(banker.clients);
-	pthread_mutex_destroy(&banker.mutex);
-
-	pthread_mutex_destroy(&mutex_nb_registered_clients);
-	pthread_mutex_destroy(&mutex_count_accepted);
-	pthread_mutex_destroy(&mutex_count_wait);
-	pthread_mutex_destroy(&mutex_count_invalid);
-	pthread_mutex_destroy(&mutex_count_dispatched);
-	pthread_mutex_destroy(&mutex_request_processed);
-	pthread_mutex_destroy(&mutex_clients_ended);
-
-	if (server_socket_fd > -1)
-		close(server_socket_fd);
-}
-
 char *recv_beg(char *args)
 {
 	pthread_mutex_lock(&banker.mutex);
@@ -115,6 +65,7 @@ char *recv_beg(char *args)
 	}
 	pthread_mutex_unlock(&banker.mutex);
 
+	/* Parse received data */
 	if (sscanf(args, " %d\n", &num_resources) != 1)
 		return "ERR invalid arguments\n";
 	if (num_resources <= 0)
@@ -148,33 +99,27 @@ char *recv_pro(char *args)
 		pthread_mutex_unlock(&banker.mutex);
 		return "ERR already sent\n";
 	}
+	pthread_mutex_unlock(&banker.mutex);
 
 	/* Parse received data */
 	char *next = args;
-	int i, j;
-	for (i = 0; i < num_resources; i++) {
-		if (sscanf(next, " %d%n", &banker.avail[i], &j) != 1) {
-			memset(banker.avail, 0, ++i * sizeof(int));
-			pthread_mutex_unlock(&banker.mutex);
+	int j;
+	int pro[num_resources];
+	for (int i = 0; i < num_resources; i++) {
+		if (sscanf(next, " %d%n", &pro[i], &j) != 1)
 			return "ERR invalid argument length\n";
-		}
-		if (banker.avail[i] < 0) {
-			memset(banker.avail, 0, ++i * sizeof(int));
-			pthread_mutex_unlock(&banker.mutex);
+		if (pro[i] < 0)
 			return "ERR invalid values\n";
-		}
 		next += j;
 	}
-	if (sscanf(next, " %d%n", &j, &j) == 1) {
-		memset(banker.avail, 0, ++i * sizeof(int));
-		pthread_mutex_unlock(&banker.mutex);
-		return "ERR invalid argument length\n";
-	}
 
-	if (is_empty(banker.avail)) {
-		pthread_mutex_unlock(&banker.mutex);
+	if (sscanf(next, " %d%n", &j, &j) == 1)
+		return "ERR invalid argument length\n";
+	if (is_empty(pro))
 		return "ERR invalid values\n";
-	}
+
+	pthread_mutex_lock(&banker.mutex);
+	memcpy(banker.avail, pro, num_resources * sizeof(int));
 	pthread_mutex_unlock(&banker.mutex);
 
 	return "ACK\n";
@@ -210,6 +155,7 @@ client *find_client(int id)
 	return NULL;
 }
 
+// FIXME
 char *recv_ini(char *args)
 {
 	pthread_mutex_lock(&banker.mutex);
@@ -358,9 +304,9 @@ char *recv_req(char *args)
 	}
 
 	allocate_req(req, banker.avail, c->alloc, c->need);
-	pthread_mutex_lock(&mutex_nb_registered_clients);
+	/*pthread_mutex_lock(&mutex_nb_registered_clients); */
 	if (!is_safe(nb_registered_clients, banker.avail, banker.clients)) {
-		pthread_mutex_unlock(&mutex_nb_registered_clients);
+		/*pthread_mutex_unlock(&mutex_nb_registered_clients); */
 		deallocate_req(req, banker.avail, c->alloc, c->need);
 		pthread_mutex_unlock(&banker.mutex);
 		free(req);
@@ -372,6 +318,7 @@ char *recv_req(char *args)
 	return "ACK\n";
 }
 
+// FIXME
 char *recv_clo(char *args)
 {
 	int num_client;
@@ -407,17 +354,16 @@ char *recv_clo(char *args)
 
 void st_process_requests(server_thread * st, int socket_fd)
 {
-	FILE *socket_r = fdopen(socket_fd, "r");
-	FILE *socket_w = fdopen(socket_fd, "w");
+	FILE *socket_rw = fdopen(socket_fd, "r+");
 
 	while (accepting_connections) {
 		char cmd[4] = "";
-		if (!fread(cmd, 3, 1, socket_r))
+		if (!fread(cmd, 3, 1, socket_rw))
 			break;
 
 		char *args = NULL;
 		size_t args_len = 0;
-		ssize_t count = getline(&args, &args_len, socket_r);
+		ssize_t count = getline(&args, &args_len, socket_rw);
 		if (!args || count < 1 || args[count - 1] != '\n') {
 			fprintf(stderr,
 				"Thread %d received incomplete command: %s\n",
@@ -446,13 +392,12 @@ void st_process_requests(server_thread * st, int socket_fd)
 			answer = recv_clo(args);
 		}
 
-		fprintf(socket_w, answer);
-		fflush(socket_w);
+		fprintf(socket_rw, answer);
+		fflush(socket_rw);
 		free(args);
 	}
 
-	fclose(socket_r);
-	fclose(socket_w);
+	fclose(socket_rw);
 }
 
 int st_wait()
@@ -505,7 +450,7 @@ void st_open_socket()
 	if (setsockopt
 	    (server_socket_fd, SOL_SOCKET, SO_REUSEADDR,
 	     &reuse, sizeof(reuse)) < 0) {
-		perror("setsockopt");
+		perror("ERROR on setting socket option");
 		exit(1);
 	}
 
@@ -516,6 +461,54 @@ void st_open_socket()
 
 	if (listen(server_socket_fd, server_backlog_size) < 0)
 		perror("ERROR on listening");
+}
+
+void st_init()
+{
+	// Ouvre un socket pour le serveur
+	st_open_socket();
+
+	// Gestion d'interruption
+	signal(SIGINT, &sigint_handler);
+
+	// Structure du banquier
+	banker.avail = NULL;
+	banker.clients = NULL;
+	pthread_mutex_init(&banker.mutex, NULL);
+}
+
+void free_clients(client * head)
+{
+	client *tmp;
+	while (head != NULL) {
+		tmp = head;
+		head = head->next;
+		free(tmp->max);
+		free(tmp->alloc);
+		free(tmp->need);
+		free(tmp);
+	}
+}
+
+void st_uninit()
+{
+	// Structure du banquier
+	free(banker.avail);
+	free_clients(banker.clients);
+	pthread_mutex_destroy(&banker.mutex);
+
+	// Mutexes
+	pthread_mutex_destroy(&mutex_nb_registered_clients);
+	pthread_mutex_destroy(&mutex_count_accepted);
+	pthread_mutex_destroy(&mutex_count_wait);
+	pthread_mutex_destroy(&mutex_count_invalid);
+	pthread_mutex_destroy(&mutex_count_dispatched);
+	pthread_mutex_destroy(&mutex_request_processed);
+	pthread_mutex_destroy(&mutex_clients_ended);
+
+	// Socket
+	if (server_socket_fd > -1)
+		close(server_socket_fd);
 }
 
 void st_print_results(FILE * fd, bool verbose)

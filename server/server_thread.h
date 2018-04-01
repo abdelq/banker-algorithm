@@ -16,9 +16,6 @@ extern sockaddr_in server_addr;
 /* Indique si le serveur accepte des connexions */
 extern bool accepting_connections;
 
-/* Nombre de serveurs */
-extern int num_servers;
-
 /* Nombre de resources */
 extern int num_resources;
 
@@ -28,10 +25,8 @@ typedef struct server_thread {
 	pthread_attr_t pt_attr;
 } server_thread;
 
-void st_open_socket(void);
 void st_init(void);
 void st_uninit(void);
-void st_process_request(server_thread *, int);
 void *st_code(void *);
 
 typedef struct client {
