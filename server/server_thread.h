@@ -38,7 +38,7 @@ typedef struct client {
 	struct client *next;
 } client;
 
-bool req_more_than(int *, int *);
+bool res_more_than(int *, int *);
 void allocate_req(int *, int *, int *, int *);
 void deallocate_req(int *, int *, int *, int *);
 bool is_safe(int, int *, client *);

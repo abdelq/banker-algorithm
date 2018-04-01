@@ -31,13 +31,13 @@ pthread_mutex_t mutex_count_wait = PTHREAD_MUTEX_INITIALIZER;
 unsigned int count_invalid = 0;
 pthread_mutex_t mutex_count_invalid = PTHREAD_MUTEX_INITIALIZER;
 
-// Nombre de clients terminés correctement (ACK envoyé en réponse à CLO)
-unsigned int count_dispatched = 0;
-pthread_mutex_t mutex_count_dispatched = PTHREAD_MUTEX_INITIALIZER;
-
 // Nombre total de requêtes (REQ) traités
 unsigned int request_processed = 0;
 pthread_mutex_t mutex_request_processed = PTHREAD_MUTEX_INITIALIZER;
+
+// Nombre de clients terminés correctement (ACK envoyé en réponse à CLO)
+unsigned int count_dispatched = 0;
+pthread_mutex_t mutex_count_dispatched = PTHREAD_MUTEX_INITIALIZER;
 
 // Nombre de clients ayant envoyé le message CLO
 unsigned int clients_ended = 0;
@@ -115,7 +115,7 @@ char *recv_pro(char *args)
 
 	if (sscanf(next, " %d%n", &j, &j) == 1)
 		return "ERR invalid argument length\n";
-	if (is_empty(pro))
+	if (is_empty(pro))	// XXX
 		return "ERR invalid values\n";
 
 	pthread_mutex_lock(&banker.mutex);
@@ -155,7 +155,6 @@ client *find_client(int id)
 	return NULL;
 }
 
-// FIXME
 char *recv_ini(char *args)
 {
 	pthread_mutex_lock(&banker.mutex);
@@ -166,7 +165,7 @@ char *recv_ini(char *args)
 	}
 	pthread_mutex_unlock(&banker.mutex);
 
-	int num_client, i, j;
+	int num_client, j;
 	if (sscanf(args, " %d%n", &num_client, &j) != 1)
 		return "ERR invalid argument length\n";
 	if (num_client < 0)
@@ -183,7 +182,7 @@ char *recv_ini(char *args)
 	/* Parse received data */
 	char *next = args + j;
 	int *max = malloc(num_resources * sizeof(int));
-	for (i = 0; i < num_resources; i++) {
+	for (int i = 0; i < num_resources; i++) {
 		if (sscanf(next, " %d%n", &max[i], &j) != 1) {
 			free(max);
 			return "ERR invalid argument length\n";
@@ -194,12 +193,12 @@ char *recv_ini(char *args)
 		}
 		next += j;
 	}
+
 	if (sscanf(next, " %d%n", &j, &j) == 1) {
 		free(max);
 		return "ERR invalid argument length\n";
 	}
-
-	if (is_empty(max)) {
+	if (is_empty(max)) {	// XXX
 		free(max);
 		return "ERR invalid values\n";
 	}
@@ -226,14 +225,13 @@ char *recv_ini(char *args)
 	return "ACK\n";
 }
 
-// FIXME Counters
 char *recv_req(char *args)
 {
 	pthread_mutex_lock(&mutex_request_processed);
 	request_processed++;
 	pthread_mutex_unlock(&mutex_request_processed);
 
-	int num_client, i, j;
+	int num_client, j;
 	if (sscanf(args, " %d%n", &num_client, &j) != 1) {
 		pthread_mutex_lock(&mutex_count_invalid);
 		count_invalid++;
@@ -267,10 +265,9 @@ char *recv_req(char *args)
 
 	/* Parse received data */
 	char *next = args + j;
-	int *req = malloc(num_resources * sizeof(int));
-	for (i = 0; i < num_resources; i++) {
+	int req[num_resources];
+	for (int i = 0; i < num_resources; i++) {
 		if (sscanf(next, " %d%n", &req[i], &j) != 1) {
-			free(req);
 			pthread_mutex_lock(&mutex_count_invalid);
 			count_invalid++;
 			pthread_mutex_unlock(&mutex_count_invalid);
@@ -278,8 +275,8 @@ char *recv_req(char *args)
 		}
 		next += j;
 	}
+
 	if (sscanf(next, " %d%n", &j, &j) == 1) {
-		free(req);
 		pthread_mutex_lock(&mutex_count_invalid);
 		count_invalid++;
 		pthread_mutex_unlock(&mutex_count_invalid);
@@ -288,39 +285,48 @@ char *recv_req(char *args)
 
 	/* Algorithme du banquier */
 	pthread_mutex_lock(&banker.mutex);
-	if (req_more_than(req, c->need)) {
+	if (res_more_than(req, c->need)) {
 		pthread_mutex_unlock(&banker.mutex);
-		free(req);
 		pthread_mutex_lock(&mutex_count_invalid);
 		count_invalid++;
 		pthread_mutex_unlock(&mutex_count_invalid);
 		return "ERR requesting more than needed\n";
 	}
 
-	if (req_more_than(req, banker.avail)) {
-		pthread_mutex_unlock(&banker.mutex);
-		free(req);
-		return "WAIT 2\n";	// XXX random
+	for (int i = 0; i < num_resources; i++) {
+		if (req[i] + c->alloc[i] < 0) {
+			pthread_mutex_unlock(&banker.mutex);
+			pthread_mutex_lock(&mutex_count_invalid);
+			count_invalid++;
+			pthread_mutex_unlock(&mutex_count_invalid);
+			return "ERR freeing more than allocated\n";
+		}
 	}
 
+	if (res_more_than(req, banker.avail)) {
+		pthread_mutex_unlock(&banker.mutex);
+		return "WAIT 2\n";	// FIXME random + counter
+	}
+	// FIXME
 	allocate_req(req, banker.avail, c->alloc, c->need);
 	/*pthread_mutex_lock(&mutex_nb_registered_clients); */
 	if (!is_safe(nb_registered_clients, banker.avail, banker.clients)) {
 		/*pthread_mutex_unlock(&mutex_nb_registered_clients); */
 		deallocate_req(req, banker.avail, c->alloc, c->need);
 		pthread_mutex_unlock(&banker.mutex);
-		free(req);
-		return "WAIT 1\n";	// XXX random
+		return "WAIT 1\n";	// FIXME random + counter
 	}
 	pthread_mutex_unlock(&banker.mutex);
 
-	free(req);
 	return "ACK\n";
 }
 
-// FIXME
 char *recv_clo(char *args)
 {
+	pthread_mutex_lock(&mutex_clients_ended);
+	clients_ended++;	// XXX
+	pthread_mutex_unlock(&mutex_clients_ended);
+
 	int num_client;
 	if (sscanf(args, " %d\n", &num_client) != 1)
 		return "ERR invalid arguments\n";
@@ -333,10 +339,6 @@ char *recv_clo(char *args)
 		pthread_mutex_unlock(&banker.mutex);
 		return "ERR CLO before INI\n";
 	}
-
-	pthread_mutex_lock(&mutex_clients_ended);
-	clients_ended++;	// XXX
-	pthread_mutex_unlock(&mutex_clients_ended);
 
 	if (!is_empty(c->alloc)) {
 		pthread_mutex_unlock(&banker.mutex);

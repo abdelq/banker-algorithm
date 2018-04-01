@@ -2,10 +2,10 @@
 
 #include "server_thread.h"
 
-bool req_more_than(int *req, int *arr)
+bool res_more_than(int *arr1, int *arr2)
 {
 	for (int i = 0; i < num_resources; i++)
-		if (req[i] > arr[i])
+		if (arr1[i] > arr2[i])
 			return true;
 	return false;
 }
