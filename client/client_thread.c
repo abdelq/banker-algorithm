@@ -95,7 +95,7 @@ int recvline(int socket, char *buffer, size_t length)
 // Returns number of WAIT commands received on success or -1 on error
 int send_cmd(int socket, char *send_buf, char *recv_buf)
 {
-	int wait_num = 0, wait_dur = 0;
+	unsigned int wait_num = 0, wait_dur = 0;
 
 	do {
 		// Send
@@ -106,7 +106,7 @@ int send_cmd(int socket, char *send_buf, char *recv_buf)
 		memset(recv_buf, '\0', strlen(recv_buf));	// XXX
 		if (recvline(socket, recv_buf, 64) < 0)
 			return -1;
-	} while (sscanf(recv_buf, "WAIT %d\n", &wait_dur) == 1 && ++wait_num);
+	} while (sscanf(recv_buf, "WAIT %u\n", &wait_dur) == 1 && ++wait_num);
 
 	return wait_num;
 }
