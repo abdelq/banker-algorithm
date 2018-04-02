@@ -1,31 +1,68 @@
-\documentclass[11pt]{article}
+\documentclass[12pt, letterpaper]{article}
 
-\usepackage[letterpaper, margin=0.75in]{geometry}
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage[french]{babel}
 
-\title{Travail pratique \#2 - IFT-2245}
-\author{Abdelhakim Qbaich & R\'emi Langevin}
+\title{Travail pratique \#2 -- IFT2245}
+\author{Abdelhakim Qbaich \and Rémi Langevin}
+\date{\today}
+
 \begin{document}
 
 \maketitle
 
-\section*{Probl\`emes rencontr\'es}
-\subsection*{}
+\section*{Problèmes rencontrés}
+\subsection*{Mauvaise utilisation de \texttt{sizeof}}
+Nous avons utilisé \texttt{sizeof} dans le code dans le but d'obtenir la taille
+d'un tableau alloué dynamiquement. Or, ce n'est évidemment pas valide.
+\subsection*{Mutexes}
+L'oubli d'un \texttt{pthread\_mutex\_unlock} après une condition a été
+particulièrement problématique. Plus d'une heure a été perdue à chasser la
+source du bogue.
 
 \section*{Surprises}
-\subsection*{Simplicit\'e de l'algorithme}
-L'algorithme du banquier fut, de fa\c{c}on surprenante, assez simple \`a 
-impl\'ementer. La partie la plus probl\'ematique fut l'allocation dynamique
-lorsqu'un client se joint ou quitte.
-\section*{Choix}
+\subsection*{Simplicité de l'algorithme}
+L'algorithme du banquier fut, de façon surprenante, assez simple à implémenter.
+\subsection*{Attaque d'intrus}
+Le serveur a été mis en ligne sur un VPS publique au port \texttt{8080}.
+Certaines adresses IP russes et chinoises ont tenté l'accès.
 
-\section*{Options rejet\'ees}
+\section*{Choix effectués}
+\subsection*{Numéro du client}
+Dans l'implémentation actuelle, le numéro du client ne peut être négatif
+(décidé arbitrairement). Il est bien évidemment possible de choisir un numéro
+tel que \textbf{322}, sans problème.
+\subsection*{Allocation dynamique de la matrice}
+La structure des clients étant une liste chaînée, elle permet une allocation au
+fur et à mesure des clients lors de la réception d'un \texttt{INI}.
+\subsection*{Écriture de fonction d'envoi et de réception}
+Considérant que \texttt{send} peut par moment ne pas envoyer la totalité du
+\textit{buffer}, la fonction \texttt{sendall} a été écrite, pour remédier à
+cette situation.
 
-\subsection*{Dynamic array pour les messages d'erreurs}
-Nous avons d\'ecid\'e de ne pas utilis\'e de tableau dynamique pour les messages
-d'erreurs re\c{c}us par le client, car il ne devrait pas avoir de probl\'emes
-pour une grandeur raisonnable.
+Au niveau de la réception, une fonction \texttt{recvline} a été codée afin de
+faciliter la réception des messages du serveur séparées par un caractère
+\textit{new line}.
+\subsection*{Aléatoire}
+Plutôt que d'utiliser l'opérateur modulo dans le choix des ressources à
+initialiser (\texttt{INI}) ou à demander (\texttt{REQ}), ce qui est une
+mauvaise pratique, une façon plus intelligente a été employée, ce qui permet
+d'obtenir des valeurs plus aléatoires.
+\subsection*{Utilisation de \texttt{sprintf}, \texttt{sscanf}}
+Dans le projet, nous avons privilégier l'utilisation des deux méthodes
+\texttt{sprintf} et \texttt{sscanf}, pour écrire et \textit{parser} les chaînes
+de caractères, respectivement. Cela a été fort utile.
 
+\section*{Options rejetées}
+\subsection*{Tableau dynamique pour l'envoi et la réception du client}
+Nous avons décidé de ne pas utiliser de tableau dynamique pour les messages
+d'erreurs reçus par le client, puisque nous avons écrit nos propres messages
+d'erreurs et savant que la taille maximale ne peut dépasser 33 caractères, y
+compris \texttt{\\0}. Pour être \textit{safe}, nous avons décidé que 64 est une
+taille de tableau très raisonnable à utiliser.
+
+Quoique relativement facile à implémenter, l'\textit{overhead} de permettre une
+taille dynamique pour l'envoi de commandes du client ne valait pas la peine
+d'écrire l'implémentation pour. La taille maximale a été fixée à 256 caractères.
 \end{document}
