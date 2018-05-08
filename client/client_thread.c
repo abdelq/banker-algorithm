@@ -151,7 +151,7 @@ int send_pro()
 	for (int i = 0; i < num_resources; i++)
 		len += snprintf(send_buf + len, sizeof(send_buf) - len,
 				" %d", provis_resources[i]);
-	strncat(send_buf, "\n", 1);
+	strncat(send_buf, "\n", 2);
 
 	if (send_cmd(socket_fd, send_buf, recv_buf) < 0) {
 		perror("PRO");
@@ -205,7 +205,7 @@ int send_ini(int client_id, int socket_fd)
 		len += snprintf(send_buf + len, sizeof(send_buf) - len,
 				" %d", ini_resources[i]);
 	}
-	strncat(send_buf, "\n", 1);
+	strncat(send_buf, "\n", 2);
 
 	if (send_cmd(socket_fd, send_buf, recv_buf) < 0) {
 		perror("INI");
@@ -239,7 +239,7 @@ int send_req(int client_id, int socket_fd, int free)
 		len += snprintf(send_buf + len, sizeof(send_buf) - len,
 				" %d", req_resources[i]);
 	}
-	strncat(send_buf, "\n", 1);
+	strncat(send_buf, "\n", 2);
 
 	int waits;
 	if ((waits = send_cmd(socket_fd, send_buf, recv_buf)) < 0) {

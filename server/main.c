@@ -23,8 +23,9 @@ int main(int argc, char *argv[])
 		pthread_create(&(st[i].pt_id), &(st[i].pt_attr),
 			       &st_code, &(st[i]));
 		pthread_attr_destroy(&(st[i].pt_attr));
-		pthread_join(st[i].pt_id, NULL);	// XXX
 	}
+	for (int i = 0; i < num_servers; i++)
+		pthread_join(st[i].pt_id, NULL);
 
 	st_uninit();
 
